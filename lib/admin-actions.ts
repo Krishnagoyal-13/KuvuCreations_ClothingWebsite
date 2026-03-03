@@ -15,6 +15,10 @@ function normalizePaymentStatus(status: string) {
   return status === "paid" ? "paid" : "pending"
 }
 
+function toMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
 export interface BillingCustomerOption {
   id: number
   fullName: string
@@ -23,9 +27,14 @@ export interface BillingCustomerOption {
 
 export interface BillingInvoiceRecord {
   id: number
+  customerId: number
   customerName: string
+  subtotal: number
+  discountTotal: number
+  taxTotal: number
   total: number
   paymentStatus: "pending" | "paid"
+  taxEnabled: boolean
   createdAt: string
   itemCount: number
   itemsSummary: string
@@ -40,11 +49,14 @@ export interface BillingInvoiceItemInput {
   productName: string
   quantity: number
   unitPrice: number
+  discountValue?: number
+  taxPercent?: number
 }
 
 export interface CreateBillingInvoiceInput {
   customerName: string
   items: BillingInvoiceItemInput[]
+  taxEnabled?: boolean
   notes?: string
 }
 
@@ -105,9 +117,14 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
     `
       SELECT
         bi.id,
+        bc.id AS customer_id,
         bc.full_name AS customer_name,
+        bi.subtotal,
+        bi.discount_total,
+        bi.tax_total,
         bi.total,
         bi.payment_status,
+        bi.tax_enabled,
         bi.created_at,
         COUNT(bii.id)::INTEGER AS item_count,
         COALESCE(
@@ -117,7 +134,7 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
       FROM billing_invoices bi
       JOIN billing_customers bc ON bc.id = bi.customer_id
       LEFT JOIN billing_invoice_items bii ON bii.invoice_id = bi.id
-      GROUP BY bi.id, bc.full_name, bi.total, bi.payment_status, bi.created_at
+      GROUP BY bi.id, bc.id, bc.full_name, bi.total, bi.payment_status, bi.created_at
       ORDER BY bi.created_at DESC
       LIMIT 300
     `,
@@ -131,9 +148,14 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
     })),
     invoices: invoicesResult.rows.map((row) => ({
       id: Number(row.id),
+      customerId: Number(row.customer_id),
       customerName: row.customer_name,
+      subtotal: Number.parseFloat(row.subtotal),
+      discountTotal: Number.parseFloat(row.discount_total),
+      taxTotal: Number.parseFloat(row.tax_total),
       total: Number.parseFloat(row.total),
       paymentStatus: normalizePaymentStatus(row.payment_status) as "pending" | "paid",
+      taxEnabled: row.tax_enabled === true,
       createdAt: new Date(row.created_at).toISOString(),
       itemCount: Number(row.item_count ?? 0),
       itemsSummary: row.items_summary || "",
@@ -149,11 +171,14 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
     return { success: false, error: "Customer name is required." }
   }
 
+  const taxEnabled = input.taxEnabled === true
   const items = (input.items || [])
     .map((item) => ({
       productName: item.productName?.trim(),
       quantity: Number(item.quantity),
       unitPrice: Number(item.unitPrice),
+      discountValue: Number(item.discountValue ?? 0),
+      taxPercent: Number(item.taxPercent ?? 0),
     }))
     .filter((item) => item.productName && item.quantity > 0 && item.unitPrice >= 0)
 
@@ -161,9 +186,29 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
     return { success: false, error: "At least one valid billing item is required." }
   }
 
+  const calculatedItems = items.map((item) => {
+    const baseTotal = toMoney(item.quantity * item.unitPrice)
+    const discountValue = toMoney(Math.min(Math.max(item.discountValue, 0), baseTotal))
+    const taxableAmount = toMoney(baseTotal - discountValue)
+    const taxPercent = taxEnabled ? Math.max(item.taxPercent, 0) : 0
+    const taxAmount = toMoney((taxableAmount * taxPercent) / 100)
+    const lineTotal = toMoney(taxableAmount + taxAmount)
+
+    return {
+      ...item,
+      baseTotal,
+      discountValue,
+      taxPercent,
+      taxAmount,
+      lineTotal,
+    }
+  })
+
   const notes = input.notes?.trim() || null
-  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const total = subtotal
+  const subtotal = toMoney(calculatedItems.reduce((sum, item) => sum + item.baseTotal, 0))
+  const discountTotal = toMoney(calculatedItems.reduce((sum, item) => sum + item.discountValue, 0))
+  const taxTotal = toMoney(calculatedItems.reduce((sum, item) => sum + item.taxAmount, 0))
+  const total = toMoney(subtotal - discountTotal + taxTotal)
 
   let invoiceId: number | null = null
 
@@ -192,22 +237,57 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
 
     const invoiceResult = await query(
       `
-        INSERT INTO billing_invoices (customer_id, subtotal, total, notes)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO billing_invoices (
+          customer_id,
+          subtotal,
+          discount_total,
+          tax_total,
+          total,
+          tax_enabled,
+          notes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
       `,
-      [customerId, subtotal.toFixed(2), total.toFixed(2), notes],
+      [
+        customerId,
+        subtotal.toFixed(2),
+        discountTotal.toFixed(2),
+        taxTotal.toFixed(2),
+        total.toFixed(2),
+        taxEnabled,
+        notes,
+      ],
     )
     invoiceId = Number(invoiceResult.rows[0].id)
 
-    for (const item of items) {
-      const lineTotal = item.quantity * item.unitPrice
+    for (const item of calculatedItems) {
       await query(
         `
-          INSERT INTO billing_invoice_items (invoice_id, product_name, quantity, unit_price, line_total)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO billing_invoice_items (
+            invoice_id,
+            product_name,
+            quantity,
+            unit_price,
+            base_total,
+            discount_value,
+            tax_percent,
+            tax_amount,
+            line_total
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `,
-        [invoiceId, item.productName, item.quantity, item.unitPrice.toFixed(2), lineTotal.toFixed(2)],
+        [
+          invoiceId,
+          item.productName,
+          item.quantity,
+          item.unitPrice.toFixed(2),
+          item.baseTotal.toFixed(2),
+          item.discountValue.toFixed(2),
+          item.taxPercent.toFixed(2),
+          item.taxAmount.toFixed(2),
+          item.lineTotal.toFixed(2),
+        ],
       )
     }
 

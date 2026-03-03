@@ -129,8 +129,11 @@ export async function initDatabase() {
         id SERIAL PRIMARY KEY,
         customer_id INTEGER NOT NULL REFERENCES billing_customers(id) ON DELETE CASCADE,
         subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
         total DECIMAL(10, 2) NOT NULL DEFAULT 0,
         payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        tax_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -146,12 +149,50 @@ export async function initDatabase() {
         product_name VARCHAR(255) NOT NULL,
         quantity INTEGER NOT NULL,
         unit_price DECIMAL(10, 2) NOT NULL,
+        base_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        tax_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
+        tax_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
         line_total DECIMAL(10, 2) NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT billing_item_quantity_check CHECK (quantity > 0),
         CONSTRAINT billing_item_unit_price_check CHECK (unit_price >= 0),
+        CONSTRAINT billing_item_discount_check CHECK (discount_value >= 0),
+        CONSTRAINT billing_item_tax_percent_check CHECK (tax_percent >= 0),
+        CONSTRAINT billing_item_tax_amount_check CHECK (tax_amount >= 0),
         CONSTRAINT billing_item_line_total_check CHECK (line_total >= 0)
       )
+    `)
+
+    // Backward-compatible schema upgrades for existing billing tables.
+    await query(`
+      ALTER TABLE billing_invoices
+      ADD COLUMN IF NOT EXISTS discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoices
+      ADD COLUMN IF NOT EXISTS tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoices
+      ADD COLUMN IF NOT EXISTS tax_enabled BOOLEAN NOT NULL DEFAULT FALSE
+    `)
+
+    await query(`
+      ALTER TABLE billing_invoice_items
+      ADD COLUMN IF NOT EXISTS base_total DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoice_items
+      ADD COLUMN IF NOT EXISTS discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoice_items
+      ADD COLUMN IF NOT EXISTS tax_percent DECIMAL(5, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoice_items
+      ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(10, 2) NOT NULL DEFAULT 0
     `)
 
     await query(`

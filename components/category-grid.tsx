@@ -36,18 +36,21 @@ export default function CategoryGrid() {
         <Link
           key={category.id}
           href={`/categories/${category.id}`}
-          className="group relative h-80 overflow-hidden rounded-lg"
+          className="group relative h-80 overflow-hidden rounded-3xl border border-[#1f2536]/10"
         >
           <Image
             src={category.image || "/placeholder.svg"}
             alt={category.name}
             fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            className="object-cover transition-transform duration-500 group-hover:scale-110"
           />
-          <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 transition-colors" />
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-4">
-            <h3 className="text-2xl font-bold mb-1">{category.name}</h3>
-            <p className="text-sm opacity-90">{category.count} items</p>
+          <div className="absolute inset-0 bg-gradient-to-t from-[#131a2e]/80 via-[#131a2e]/20 to-transparent transition-all duration-500 group-hover:from-[#131a2e]/90" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-white">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#f6dca7]">Edit</p>
+            <h3 className="mb-1 mt-2 text-3xl">{category.name}</h3>
+            <p className="rounded-full border border-white/40 bg-white/10 px-3 py-1 text-sm backdrop-blur">
+              {category.count} items
+            </p>
           </div>
         </Link>
       ))}

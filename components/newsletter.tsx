@@ -27,23 +27,26 @@ export default function Newsletter() {
   }
 
   return (
-    <div className="text-center max-w-2xl mx-auto">
-      <h2 className="text-3xl font-bold mb-4 bg-gradient-to-r from-rose-500 to-purple-600 bg-clip-text text-transparent">
-        Join Our Newsletter
-      </h2>
-      <p className="text-muted-foreground mb-6">
-        Subscribe to get special offers, free giveaways, and once-in-a-lifetime deals.
+    <div className="lux-panel mx-auto max-w-3xl px-6 py-10 text-center sm:px-10">
+      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#6e7488]">Inner Circle</p>
+      <h2 className="mt-3 text-4xl text-[#171f32]">Get First Access to Every Drop</h2>
+      <p className="mx-auto mb-7 mt-4 max-w-xl text-[#47506b]">
+        Subscriber-only promos, early launch previews, and styling picks for every mood board.
       </p>
-      <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+      <form onSubmit={handleSubmit} className="mx-auto flex max-w-md flex-col gap-3 sm:flex-row">
         <Input
           type="email"
           placeholder="Your email address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="flex-1"
+          className="h-11 flex-1 rounded-full border-[#171f32]/20 bg-white/80 px-5 text-[#171f32] placeholder:text-[#7a7f92] focus-visible:ring-[#E98A2D]"
         />
-        <Button type="submit" disabled={isSubmitting} className="bg-rose-500 hover:bg-rose-600">
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className="h-11 rounded-full bg-[#171f32] px-6 text-[#FCEBCD] hover:bg-[#242d44]"
+        >
           {isSubmitting ? "Subscribing..." : "Subscribe"}
         </Button>
       </form>

@@ -1,8 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { Search, ShoppingBag, Heart, User, Menu, LogOut } from "lucide-react"
+import { Search, ShoppingBag, Heart, User, Menu, LogOut, ShieldCheck, Shield } from "lucide-react"
 import { useUser } from "@/context/user-context"
+import { logoutAdmin } from "@/lib/admin-actions"
+import { useToast } from "@/components/ui/use-toast"
 
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -17,41 +19,53 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export default function SiteHeader() {
-  const { user, cartCount, logout } = useUser()
+  const { user, cartCount, logout, isAdmin, refreshAdminStatus } = useUser()
+  const { toast } = useToast()
+
+  const handleAdminLogout = async () => {
+    const result = await logoutAdmin()
+    if (result.success) {
+      await refreshAdminStatus()
+      toast({
+        title: "Admin mode disabled",
+        description: "You are now browsing as customer.",
+      })
+    }
+  }
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-[#1f2536]/10 bg-[#f8f3e9]/85 backdrop-blur-xl supports-[backdrop-filter]:bg-[#f8f3e9]/65">
       {/* Announcement Bar */}
-      <div className="bg-gradient-to-r from-rose-500 to-purple-600 text-white text-center py-2 text-sm font-medium">
-        Free shipping on orders over $100 | Use code KUVU20 for 20% off your first order
+      <div className="bg-gradient-to-r from-[#151b2d] via-[#273453] to-[#0f6e80] py-2 text-center text-sm font-medium text-[#f6dca7]">
+        Free express shipping over $100 | Use code KUVU20 for 20% off your first order
       </div>
 
       <div className="container flex h-16 items-center">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="md:hidden">
+            <Button variant="ghost" size="icon" className="text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32] md:hidden">
               <Menu className="h-5 w-5" />
               <span className="sr-only">Toggle menu</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[300px] sm:w-[400px]">
+          <SheetContent side="left" className="w-[300px] border-[#1f2536]/10 bg-[#f8f3e9] sm:w-[400px]">
             <nav className="flex flex-col gap-4 mt-8">
-              <Link href="/" className="text-lg font-semibold">
+              <Link href="/" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Home
               </Link>
-              <Link href="/products" className="text-lg font-semibold">
+              <Link href="/products" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Shop All
               </Link>
-              <Link href="/categories" className="text-lg font-semibold">
+              <Link href="/categories" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Categories
               </Link>
-              <Link href="/collections" className="text-lg font-semibold">
+              <Link href="/collections" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Collections
               </Link>
-              <Link href="/about" className="text-lg font-semibold">
+              <Link href="/about" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 About
               </Link>
-              <Link href="/contact" className="text-lg font-semibold">
+              <Link href="/contact" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Contact
               </Link>
             </nav>
@@ -59,81 +73,86 @@ export default function SiteHeader() {
         </Sheet>
 
         <Link href="/" className="ml-4 md:ml-0 flex-1 md:flex-none">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-rose-500 to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-xl font-semibold tracking-[0.16em] bg-gradient-to-r from-[#171f32] via-[#E98A2D] to-[#0F6E80] bg-clip-text text-transparent">
             KUVU CREATIONS
           </h1>
         </Link>
 
         <nav className="mx-6 hidden md:flex items-center gap-6 text-sm">
-          <Link href="/" className="font-medium transition-colors hover:text-foreground/80">
+          <Link href="/" className="font-medium text-[#2c3448] transition-colors hover:text-[#E98A2D]">
             Home
           </Link>
-          <Link href="/products" className="font-medium transition-colors hover:text-foreground/80">
+          <Link href="/products" className="font-medium text-[#2c3448] transition-colors hover:text-[#E98A2D]">
             Shop All
           </Link>
-          <Link href="/categories" className="font-medium transition-colors hover:text-foreground/80">
+          <Link href="/categories" className="font-medium text-[#2c3448] transition-colors hover:text-[#E98A2D]">
             Categories
           </Link>
-          <Link href="/collections" className="font-medium transition-colors hover:text-foreground/80">
+          <Link href="/collections" className="font-medium text-[#2c3448] transition-colors hover:text-[#E98A2D]">
             Collections
           </Link>
-          <Link href="/about" className="font-medium transition-colors hover:text-foreground/80">
+          <Link href="/about" className="font-medium text-[#2c3448] transition-colors hover:text-[#E98A2D]">
             About
           </Link>
         </nav>
 
         <div className="flex flex-1 items-center justify-end gap-2">
-          <Button variant="ghost" size="icon" className="hidden md:flex">
+          <Button variant="ghost" size="icon" className="hidden text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32] md:flex">
             <Search className="h-5 w-5" />
             <span className="sr-only">Search</span>
           </Button>
 
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
-                  <User className="h-5 w-5" />
-                  <span className="sr-only">User menu</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Hi, {user.firstName}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/account">My Account</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/orders">My Orders</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/wishlist">Wishlist</Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <Button variant="ghost" size="icon" asChild>
-              <Link href="/login">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32]">
                 <User className="h-5 w-5" />
-                <span className="sr-only">Login</span>
-              </Link>
-            </Button>
-          )}
+                {isAdmin && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-emerald-500" />}
+                <span className="sr-only">User menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 border-[#1f2536]/10 bg-[#fffaf1]">
+              <DropdownMenuLabel>{isAdmin ? "Role: Admin" : "Role: Customer"}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href={user ? "/account" : "/login"}>
+                  <User className="mr-2 h-4 w-4" />
+                  {user ? "Customer Dashboard" : "Customer Login"}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/admin">
+                  {isAdmin ? <ShieldCheck className="mr-2 h-4 w-4" /> : <Shield className="mr-2 h-4 w-4" />}
+                  {isAdmin ? "Admin Dashboard" : "Admin Billing Login"}
+                </Link>
+              </DropdownMenuItem>
+              {isAdmin && (
+                <DropdownMenuItem onClick={handleAdminLogout}>
+                  <Shield className="mr-2 h-4 w-4" />
+                  Exit Admin Mode
+                </DropdownMenuItem>
+              )}
+              {user && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" className="text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32]">
             <Heart className="h-5 w-5" />
             <span className="sr-only">Wishlist</span>
           </Button>
 
-          <Button variant="ghost" size="icon" className="relative" asChild>
+          <Button variant="ghost" size="icon" className="relative text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32]" asChild>
             <Link href="/cart">
               <ShoppingBag className="h-5 w-5" />
               {cartCount > 0 && (
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center">
+                <Badge className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#E98A2D] p-0 text-[#1b2235] hover:bg-[#E98A2D]">
                   {cartCount}
                 </Badge>
               )}

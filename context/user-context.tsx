@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { getCurrentUser, logoutUser } from "@/lib/auth-actions"
 import { getCart, type CartItem } from "@/lib/cart-actions"
+import { getAdminSessionStatus } from "@/lib/admin-actions"
 
 interface User {
   id: string
@@ -17,11 +18,13 @@ interface User {
 
 interface UserContextType {
   user: User | null
+  isAdmin: boolean
   isLoading: boolean
   cart: CartItem[]
   cartCount: number
   cartTotal: number
   refreshCart: () => Promise<void>
+  refreshAdminStatus: () => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -29,6 +32,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined)
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
   const router = useRouter()
@@ -63,6 +67,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     await fetchCart()
   }
 
+  const fetchAdminStatus = async () => {
+    try {
+      const hasAdminAccess = await getAdminSessionStatus()
+      setIsAdmin(hasAdminAccess)
+    } catch (error) {
+      console.error("Error fetching admin status:", error)
+      setIsAdmin(false)
+    }
+  }
+
+  const refreshAdminStatus = async () => {
+    await fetchAdminStatus()
+  }
+
   const logout = async () => {
     try {
       await logoutUser()
@@ -85,6 +103,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetchUserData()
     fetchCart()
+    fetchAdminStatus()
   }, [])
 
   // Calculate cart count and total
@@ -95,11 +114,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     <UserContext.Provider
       value={{
         user,
+        isAdmin,
         isLoading,
         cart,
         cartCount,
         cartTotal,
         refreshCart,
+        refreshAdminStatus,
         logout,
       }}
     >

@@ -14,7 +14,12 @@ export async function query(text: string, params: any[] = []) {
 
 // Initialize database tables
 export async function initDatabase() {
+  const lockId = 80741231
+
   try {
+    // Prevent concurrent CREATE TABLE races across multiple server workers.
+    await query("SELECT pg_advisory_lock($1)", [lockId])
+
     // Create users table
     await query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -108,10 +113,65 @@ export async function initDatabase() {
       )
     `)
 
+    // Create billing customers table
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_customers (
+        id SERIAL PRIMARY KEY,
+        full_name VARCHAR(255) NOT NULL UNIQUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create billing invoices table
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_invoices (
+        id SERIAL PRIMARY KEY,
+        customer_id INTEGER NOT NULL REFERENCES billing_customers(id) ON DELETE CASCADE,
+        subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT billing_payment_status_check CHECK (payment_status IN ('pending', 'paid'))
+      )
+    `)
+
+    // Create billing invoice items table
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_invoice_items (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES billing_invoices(id) ON DELETE CASCADE,
+        product_name VARCHAR(255) NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10, 2) NOT NULL,
+        line_total DECIMAL(10, 2) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT billing_item_quantity_check CHECK (quantity > 0),
+        CONSTRAINT billing_item_unit_price_check CHECK (unit_price >= 0),
+        CONSTRAINT billing_item_line_total_check CHECK (line_total >= 0)
+      )
+    `)
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_invoices_customer_id ON billing_invoices(customer_id)
+    `)
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_invoices_payment_status ON billing_invoices(payment_status)
+    `)
+
     console.log("Database initialized successfully")
   } catch (error) {
     console.error("Error initializing database", error)
     throw error
+  } finally {
+    try {
+      await query("SELECT pg_advisory_unlock($1)", [lockId])
+    } catch (unlockError) {
+      console.error("Error releasing database init lock", unlockError)
+    }
   }
 }
 

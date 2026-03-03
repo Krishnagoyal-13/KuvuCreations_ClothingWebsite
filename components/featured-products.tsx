@@ -62,7 +62,7 @@ export default function FeaturedProducts() {
       {products.map((product) => (
         <Card
           key={product.id}
-          className="group overflow-hidden border-0 shadow-sm hover:shadow-md transition-all duration-300"
+          className="group overflow-hidden rounded-3xl border border-[#1f2536]/10 bg-white/70 shadow-[0_14px_40px_rgba(16,22,38,0.08)] transition-all duration-500 hover:-translate-y-1 hover:shadow-[0_22px_60px_rgba(16,22,38,0.16)]"
         >
           <CardContent className="p-0">
             <div className="relative">
@@ -72,7 +72,7 @@ export default function FeaturedProducts() {
                     src={product.image || "/placeholder.svg"}
                     alt={product.name}
                     fill
-                    className="object-cover transition-transform duration-300 group-hover:scale-105"
+                    className="object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                 </div>
               </Link>
@@ -80,26 +80,27 @@ export default function FeaturedProducts() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full bg-white/80 backdrop-blur-sm hover:bg-white text-rose-500"
+                  className="rounded-full border border-white/60 bg-white/80 text-[#E98A2D] backdrop-blur-sm hover:bg-white"
                   onClick={() => toggleWishlist(product.id)}
                 >
-                  <Heart className={`h-5 w-5 ${wishlist.includes(product.id) ? "fill-rose-500 text-rose-500" : ""}`} />
+                  <Heart className={`h-5 w-5 ${wishlist.includes(product.id) ? "fill-[#E98A2D] text-[#E98A2D]" : ""}`} />
                   <span className="sr-only">Add to wishlist</span>
                 </Button>
               </div>
               <div className="absolute top-3 left-3 flex flex-col gap-2">
-                {product.isNew && <Badge className="bg-rose-500 text-white hover:bg-rose-600">New</Badge>}
-                {product.isSale && <Badge className="bg-red-500 text-white hover:bg-red-600">Sale</Badge>}
+                {product.isNew && <Badge className="bg-[#171f32] text-[#FCEBCD] hover:bg-[#171f32]">New</Badge>}
+                {product.isSale && <Badge className="bg-[#E98A2D] text-[#171f32] hover:bg-[#E98A2D]">Sale</Badge>}
               </div>
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#131a2e]/40 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
             </div>
             <div className="p-4">
               <Link href={`/products/${product.id}`} className="hover:underline">
-                <h3 className="font-medium mb-1">{product.name}</h3>
+                <h3 className="mb-1 text-lg font-semibold text-[#171f32]">{product.name}</h3>
               </Link>
               <div className="flex items-center gap-2">
-                <span className="font-semibold">${product.price.toFixed(2)}</span>
+                <span className="font-semibold text-[#171f32]">${product.price.toFixed(2)}</span>
                 {product.originalPrice && (
-                  <span className="text-sm text-muted-foreground line-through">
+                  <span className="text-sm text-[#7a7f92] line-through">
                     ${product.originalPrice.toFixed(2)}
                   </span>
                 )}
@@ -108,7 +109,7 @@ export default function FeaturedProducts() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 hover:bg-rose-50 hover:text-rose-500 hover:border-rose-200"
+                  className="flex-1 rounded-full border-[#171f32]/20 bg-white/60 text-[#171f32] hover:border-[#E98A2D]/40 hover:bg-[#fff3df] hover:text-[#171f32]"
                 >
                   <ShoppingBag className="h-4 w-4 mr-2" />
                   Add to Cart

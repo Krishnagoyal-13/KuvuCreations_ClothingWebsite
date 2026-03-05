@@ -25,7 +25,7 @@ export default function Home() {
             </div>
 
             <div className="space-y-5">
-              <h1 className="text-balance text-5xl leading-[0.95] text-[#171f32] sm:text-6xl lg:text-7xl">
+              <h1 className="text-balance text-4xl leading-[0.95] text-[#171f32] sm:text-6xl lg:text-7xl">
                 Soft Luxury.
                 <br />
                 <span className="bg-gradient-to-r from-[#171f32] via-[#E98A2D] to-[#59D7EA] bg-clip-text text-transparent">
@@ -52,7 +52,7 @@ export default function Home() {
               </Button>
             </div>
 
-            <div className="grid max-w-xl grid-cols-3 gap-3">
+            <div className="grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="lux-panel reveal-soft p-4 text-center" style={{ animationDelay: "120ms" }}>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6e7488]">Rated</p>
                 <p className="mt-1 flex items-center justify-center gap-1 text-2xl font-semibold text-[#171f32]">
@@ -73,7 +73,7 @@ export default function Home() {
           </div>
 
           <div className="relative reveal-up lg:pl-8" style={{ animationDelay: "140ms" }}>
-            <div className="lux-panel relative h-[580px] overflow-hidden rounded-[2rem] p-3">
+            <div className="lux-panel relative h-[460px] overflow-hidden rounded-[2rem] p-3 sm:h-[540px] lg:h-[580px]">
               <div className="absolute left-6 top-6 z-20 rounded-full bg-[#171f32] px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#FCEBCD]">
                 Capsule 26
               </div>
@@ -99,7 +99,7 @@ export default function Home() {
           <div className="mb-8 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#6e7488]">Curated For You</p>
-              <h2 className="mt-2 text-4xl text-[#171f32]">Hot Right Now</h2>
+              <h2 className="mt-2 text-3xl text-[#171f32] sm:text-4xl">Hot Right Now</h2>
             </div>
             <Link
               href="/products/new-arrivals"
@@ -114,7 +114,7 @@ export default function Home() {
 
       <section className="px-4 py-14 sm:px-6 lg:px-8">
         <div className="container mx-auto rounded-[2rem] border border-[#20263A]/10 bg-gradient-to-r from-white/70 via-[#fff4df]/65 to-[#eefbfd] p-8 sm:p-10">
-          <h2 className="mb-8 text-center text-4xl text-[#171f32]">Shop by Mood</h2>
+          <h2 className="mb-8 text-center text-3xl text-[#171f32] sm:text-4xl">Shop by Mood</h2>
           <CategoryGrid />
         </div>
       </section>
@@ -123,7 +123,7 @@ export default function Home() {
         <div className="container mx-auto grid grid-cols-1 items-center gap-10 rounded-[2rem] border border-[#20263A]/10 bg-[#171f32] p-8 text-[#FCEBCD] lg:grid-cols-2 lg:p-12">
           <div className="order-2 space-y-5 lg:order-1">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#EABF74]">Limited Capsule</p>
-            <h2 className="text-4xl leading-tight sm:text-5xl">The Golden Hour Collection</h2>
+            <h2 className="text-3xl leading-tight sm:text-5xl">The Golden Hour Collection</h2>
             <p className="text-[#d8cdb3]">
               Sculpted cuts, luminous satins, and statement tailoring designed for rooftop nights and camera flashes.
             </p>

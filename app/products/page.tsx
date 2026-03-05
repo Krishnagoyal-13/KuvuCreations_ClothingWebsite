@@ -14,6 +14,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { query } from "@/lib/db"
 import { mockProducts } from "@/lib/mock-data"
 
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 // Fetch products from the database
 async function getProducts() {
   try {
@@ -84,10 +91,10 @@ export default async function ProductsPage() {
                   <RadioGroup defaultValue="all">
                     {[
                       { value: "all", label: "All Prices" },
-                      { value: "under-50", label: "Under $50" },
-                      { value: "50-100", label: "$50 - $100" },
-                      { value: "100-200", label: "$100 - $200" },
-                      { value: "over-200", label: "Over $200" },
+                      { value: "under-50", label: "Under ₹50" },
+                      { value: "50-100", label: "₹50 - ₹100" },
+                      { value: "100-200", label: "₹100 - ₹200" },
+                      { value: "over-200", label: "Over ₹200" },
                     ].map((option) => (
                       <div key={option.value} className="flex items-center space-x-2">
                         <RadioGroupItem value={option.value} id={`price-${option.value}`} />
@@ -158,10 +165,10 @@ export default async function ProductsPage() {
                   <h3 className="font-medium mb-1">{product.name}</h3>
                 </Link>
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold">${product.price.toFixed(2)}</span>
+                  <span className="font-semibold">{currencyFormatter.format(product.price)}</span>
                   {product.originalPrice && (
                     <span className="text-sm text-muted-foreground line-through">
-                      ${product.originalPrice.toFixed(2)}
+                      {currencyFormatter.format(product.originalPrice)}
                     </span>
                   )}
                 </div>

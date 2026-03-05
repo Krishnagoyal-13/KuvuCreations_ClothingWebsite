@@ -11,6 +11,13 @@ import { Separator } from "@/components/ui/separator"
 import { updateCartItemQuantity, removeFromCart, clearCart } from "@/lib/cart-actions"
 import { useToast } from "@/components/ui/use-toast"
 
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export default function CartPage() {
   const { cart, cartTotal, refreshCart } = useUser()
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
@@ -106,7 +113,7 @@ export default function CartPage() {
                     <Link href={`/products/${item.productId}`} className="font-medium hover:underline">
                       {item.name}
                     </Link>
-                    <span className="font-semibold">${item.price.toFixed(2)}</span>
+                    <span className="font-semibold">{currencyFormatter.format(item.price)}</span>
                   </div>
                   {item.size && <span className="text-sm text-muted-foreground">Size: {item.size}</span>}
                   {item.color && <span className="text-sm text-muted-foreground">Color: {item.color}</span>}
@@ -167,7 +174,7 @@ export default function CartPage() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span>Subtotal</span>
-                <span>${cartTotal.toFixed(2)}</span>
+                <span>{currencyFormatter.format(cartTotal)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Shipping</span>
@@ -181,7 +188,7 @@ export default function CartPage() {
             <Separator />
             <div className="flex justify-between font-semibold text-lg">
               <span>Total</span>
-              <span>${cartTotal.toFixed(2)}</span>
+              <span>{currencyFormatter.format(cartTotal)}</span>
             </div>
             <Button className="w-full bg-rose-500 hover:bg-rose-600" asChild>
               <Link href="/checkout">

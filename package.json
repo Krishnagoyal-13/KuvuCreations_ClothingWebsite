@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev",
+    "dev": "node scripts/dev-safe.cjs",
+    "dev:clean": "node scripts/dev-safe.cjs",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "billing:reset": "node scripts/reset-billing-data.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

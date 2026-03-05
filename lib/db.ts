@@ -118,6 +118,8 @@ export async function initDatabase() {
       CREATE TABLE IF NOT EXISTS billing_customers (
         id SERIAL PRIMARY KEY,
         full_name VARCHAR(255) NOT NULL UNIQUE,
+        phone_number VARCHAR(30),
+        opening_balance DECIMAL(10, 2) NOT NULL DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
@@ -134,6 +136,7 @@ export async function initDatabase() {
         total DECIMAL(10, 2) NOT NULL DEFAULT 0,
         payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
         tax_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        customer_phone VARCHAR(30),
         notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -147,6 +150,7 @@ export async function initDatabase() {
         id SERIAL PRIMARY KEY,
         invoice_id INTEGER NOT NULL REFERENCES billing_invoices(id) ON DELETE CASCADE,
         product_name VARCHAR(255) NOT NULL,
+        product_type VARCHAR(100) NOT NULL DEFAULT 'Night suit',
         quantity INTEGER NOT NULL,
         unit_price DECIMAL(10, 2) NOT NULL,
         base_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -164,7 +168,28 @@ export async function initDatabase() {
       )
     `)
 
+    // Create stock table to track purchased stock per product type
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_stock_categories (
+        id SERIAL PRIMARY KEY,
+        product_type VARCHAR(100) NOT NULL UNIQUE,
+        purchased_qty INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT billing_stock_purchased_qty_check CHECK (purchased_qty >= 0)
+      )
+    `)
+
     // Backward-compatible schema upgrades for existing billing tables.
+    await query(`
+      ALTER TABLE billing_customers
+      ADD COLUMN IF NOT EXISTS opening_balance DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_customers
+      ADD COLUMN IF NOT EXISTS phone_number VARCHAR(30)
+    `)
+
     await query(`
       ALTER TABLE billing_invoices
       ADD COLUMN IF NOT EXISTS discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0
@@ -176,6 +201,10 @@ export async function initDatabase() {
     await query(`
       ALTER TABLE billing_invoices
       ADD COLUMN IF NOT EXISTS tax_enabled BOOLEAN NOT NULL DEFAULT FALSE
+    `)
+    await query(`
+      ALTER TABLE billing_invoices
+      ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(30)
     `)
 
     await query(`
@@ -194,6 +223,10 @@ export async function initDatabase() {
       ALTER TABLE billing_invoice_items
       ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(10, 2) NOT NULL DEFAULT 0
     `)
+    await query(`
+      ALTER TABLE billing_invoice_items
+      ADD COLUMN IF NOT EXISTS product_type VARCHAR(100) NOT NULL DEFAULT 'Night suit'
+    `)
 
     await query(`
       CREATE INDEX IF NOT EXISTS idx_billing_invoices_customer_id ON billing_invoices(customer_id)
@@ -201,6 +234,10 @@ export async function initDatabase() {
 
     await query(`
       CREATE INDEX IF NOT EXISTS idx_billing_invoices_payment_status ON billing_invoices(payment_status)
+    `)
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_invoice_items_product_type ON billing_invoice_items(product_type)
     `)
 
     console.log("Database initialized successfully")

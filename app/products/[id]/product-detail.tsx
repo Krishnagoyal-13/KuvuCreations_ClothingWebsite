@@ -16,6 +16,13 @@ import ProductReviews from "@/components/product-reviews"
 import VirtualTryOn from "@/components/virtual-try-on"
 import AddToCart from "./add-to-cart"
 
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 interface Product {
   id: string
   name: string
@@ -94,7 +101,7 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             </div>
           </div>
 
-          <div className="text-2xl font-bold">${product.price.toFixed(2)}</div>
+          <div className="text-2xl font-bold">{currencyFormatter.format(product.price)}</div>
 
           <p className="text-muted-foreground">{product.description}</p>
 
@@ -208,7 +215,7 @@ export default function ProductDetail({ product }: ProductDetailProps) {
                 <div>
                   <h4 className="font-medium">Shipping</h4>
                   <p className="text-muted-foreground">
-                    Free standard shipping on orders over $100. Expedited and international shipping options available
+                    Free standard shipping on orders over ₹100. Expedited and international shipping options available
                     at checkout.
                   </p>
                 </div>

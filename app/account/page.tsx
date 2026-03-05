@@ -36,12 +36,22 @@ export default function AccountPage() {
       <h1 className="text-3xl font-bold mb-6">My Account</h1>
 
       <Tabs defaultValue="profile" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="orders">Orders</TabsTrigger>
-          <TabsTrigger value="wishlist">Wishlist</TabsTrigger>
-          <TabsTrigger value="addresses">Addresses</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="h-auto min-w-max gap-1 p-1">
+            <TabsTrigger value="profile" className="min-w-[110px]">
+              Profile
+            </TabsTrigger>
+            <TabsTrigger value="orders" className="min-w-[110px]">
+              Orders
+            </TabsTrigger>
+            <TabsTrigger value="wishlist" className="min-w-[110px]">
+              Wishlist
+            </TabsTrigger>
+            <TabsTrigger value="addresses" className="min-w-[110px]">
+              Addresses
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="profile">
           <Card>

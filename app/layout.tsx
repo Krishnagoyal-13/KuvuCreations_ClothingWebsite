@@ -8,7 +8,6 @@ import SiteHeader from "@/components/site-header"
 import SiteFooter from "@/components/site-footer"
 import { Toaster } from "@/components/ui/toaster"
 import { UserProvider } from "@/context/user-context"
-import MockDataNotice from "@/components/mock-data-notice"
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -44,7 +43,6 @@ export default function RootLayout({
               <SiteHeader />
               <main className="flex-1">{children}</main>
               <SiteFooter />
-              <MockDataNotice />
             </div>
             <Toaster />
           </UserProvider>

@@ -9,6 +9,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
+const currencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 // Mock product data
 const products = [
   {
@@ -98,10 +105,10 @@ export default function FeaturedProducts() {
                 <h3 className="mb-1 text-lg font-semibold text-[#171f32]">{product.name}</h3>
               </Link>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-[#171f32]">${product.price.toFixed(2)}</span>
+                <span className="font-semibold text-[#171f32]">{currencyFormatter.format(product.price)}</span>
                 {product.originalPrice && (
                   <span className="text-sm text-[#7a7f92] line-through">
-                    ${product.originalPrice.toFixed(2)}
+                    {currencyFormatter.format(product.originalPrice)}
                   </span>
                 )}
               </div>

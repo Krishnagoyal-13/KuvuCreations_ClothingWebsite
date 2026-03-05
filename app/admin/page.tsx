@@ -10,8 +10,8 @@ export default async function AdminPage() {
   }
 
   try {
-    const { customers, invoices } = await getBillingDashboardData()
-    return <AdminDashboard customers={customers} invoices={invoices} />
+    const { customers, invoices, stockByCategory } = await getBillingDashboardData()
+    return <AdminDashboard customers={customers} invoices={invoices} stockByCategory={stockByCategory} />
   } catch (error) {
     console.error("Failed to load admin dashboard data:", error)
     return (

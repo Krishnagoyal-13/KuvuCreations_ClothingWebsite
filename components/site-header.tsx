@@ -36,19 +36,23 @@ export default function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[#1f2536]/10 bg-[#f8f3e9]/85 backdrop-blur-xl supports-[backdrop-filter]:bg-[#f8f3e9]/65">
       {/* Announcement Bar */}
-      <div className="bg-gradient-to-r from-[#151b2d] via-[#273453] to-[#0f6e80] py-2 text-center text-sm font-medium text-[#f6dca7]">
-        Free express shipping over $100 | Use code KUVU20 for 20% off your first order
+      <div className="bg-gradient-to-r from-[#151b2d] via-[#273453] to-[#0f6e80] px-3 py-2 text-center text-xs font-medium leading-relaxed text-[#f6dca7] sm:text-sm">
+        Free express shipping over ₹100 | Use code KUVU20 for 20% off your first order
       </div>
 
-      <div className="container flex h-16 items-center">
+      <div className="container flex h-16 items-center gap-1">
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32] md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32] md:hidden"
+            >
               <Menu className="h-5 w-5" />
               <span className="sr-only">Toggle menu</span>
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[300px] border-[#1f2536]/10 bg-[#f8f3e9] sm:w-[400px]">
+          <SheetContent side="left" className="w-[85vw] max-w-[340px] border-[#1f2536]/10 bg-[#f8f3e9] sm:w-[400px]">
             <nav className="flex flex-col gap-4 mt-8">
               <Link href="/" className="text-lg font-semibold text-[#171f32] hover:text-[#E98A2D]">
                 Home
@@ -72,8 +76,8 @@ export default function SiteHeader() {
           </SheetContent>
         </Sheet>
 
-        <Link href="/" className="ml-4 md:ml-0 flex-1 md:flex-none">
-          <h1 className="text-xl font-semibold tracking-[0.16em] bg-gradient-to-r from-[#171f32] via-[#E98A2D] to-[#0F6E80] bg-clip-text text-transparent">
+        <Link href="/" className="ml-2 min-w-0 flex-1 md:ml-0 md:flex-none">
+          <h1 className="truncate text-base font-semibold tracking-[0.1em] bg-gradient-to-r from-[#171f32] via-[#E98A2D] to-[#0F6E80] bg-clip-text text-transparent sm:text-xl sm:tracking-[0.16em]">
             KUVU CREATIONS
           </h1>
         </Link>
@@ -96,7 +100,7 @@ export default function SiteHeader() {
           </Link>
         </nav>
 
-        <div className="flex flex-1 items-center justify-end gap-2">
+        <div className="flex flex-1 items-center justify-end gap-1 sm:gap-2">
           <Button variant="ghost" size="icon" className="hidden text-[#171f32] hover:bg-[#171f32]/10 hover:text-[#171f32] md:flex">
             <Search className="h-5 w-5" />
             <span className="sr-only">Search</span>

@@ -45,15 +45,32 @@ export interface BillingInvoiceRecord {
   customerId: number
   customerName: string
   customerPhone: string | null
+  grossTotal: number
+  returnTotal: number
   subtotal: number
   discountTotal: number
   taxTotal: number
   total: number
+  paidAmount: number
+  dueAmount: number
   paymentStatus: "pending" | "paid"
   taxEnabled: boolean
   createdAt: string
   itemCount: number
   itemsSummary: string
+}
+
+export interface BillingReturnRecord {
+  id: number
+  invoiceId: number
+  customerId: number
+  customerName: string
+  returnTotal: number
+  isRefunded: boolean
+  quantityTotal: number
+  itemsSummary: string
+  notes: string | null
+  createdAt: string
 }
 
 export interface BillingStockCategoryRecord {
@@ -66,6 +83,7 @@ export interface BillingStockCategoryRecord {
 export interface BillingDashboardData {
   customers: BillingCustomerOption[]
   invoices: BillingInvoiceRecord[]
+  returns: BillingReturnRecord[]
   stockByCategory: BillingStockCategoryRecord[]
 }
 
@@ -86,6 +104,7 @@ export interface CreateBillingInvoiceInput {
   items: BillingInvoiceItemInput[]
   taxEnabled?: boolean
   notes?: string
+  initialPaidAmount?: number
 }
 
 export interface UpsertBillingStockByCategoryInput {
@@ -93,6 +112,17 @@ export interface UpsertBillingStockByCategoryInput {
     productType: string
     purchasedQty: number
   }>
+}
+
+export interface CreateBillingReturnInput {
+  customerId: number
+  invoiceId: number
+  productName: string
+  productType?: string
+  quantity: number
+  refundAmount: number
+  notes?: string
+  isRefunded?: boolean
 }
 
 export async function getAdminSessionStatus() {
@@ -152,15 +182,23 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
 
   const invoicesResult = await query(
     `
+      WITH return_totals AS (
+        SELECT invoice_id, COALESCE(SUM(return_total), 0) AS return_total
+        FROM billing_returns
+        GROUP BY invoice_id
+      )
       SELECT
         bi.id,
         bc.id AS customer_id,
         bc.full_name AS customer_name,
         COALESCE(bi.customer_phone, bc.phone_number) AS customer_phone,
+        bi.total AS gross_total,
+        COALESCE(rt.return_total, 0) AS return_total,
         bi.subtotal,
         bi.discount_total,
         bi.tax_total,
         bi.total,
+        bi.paid_amount,
         bi.payment_status,
         bi.tax_enabled,
         bi.created_at,
@@ -171,16 +209,19 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
         ) AS items_summary
       FROM billing_invoices bi
       JOIN billing_customers bc ON bc.id = bi.customer_id
+      LEFT JOIN return_totals rt ON rt.invoice_id = bi.id
       LEFT JOIN billing_invoice_items bii ON bii.invoice_id = bi.id
       GROUP BY
         bi.id,
         bc.id,
         bc.full_name,
         COALESCE(bi.customer_phone, bc.phone_number),
+        bi.total,
+        COALESCE(rt.return_total, 0),
         bi.subtotal,
         bi.discount_total,
         bi.tax_total,
-        bi.total,
+        bi.paid_amount,
         bi.payment_status,
         bi.tax_enabled,
         bi.created_at
@@ -202,6 +243,39 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
     GROUP BY product_type
   `)
 
+  const returnedStockResult = await query(`
+    SELECT
+      product_type,
+      COALESCE(SUM(quantity), 0)::INTEGER AS returned_qty
+    FROM billing_return_items
+    GROUP BY product_type
+  `)
+
+  const returnsResult = await query(
+    `
+      SELECT
+        br.id,
+        br.invoice_id,
+        br.customer_id,
+        bc.full_name AS customer_name,
+        br.return_total,
+        br.is_refunded,
+        br.notes,
+        br.created_at,
+        COALESCE(SUM(bri.quantity), 0)::INTEGER AS quantity_total,
+        COALESCE(
+          STRING_AGG((bri.product_name || ' [' || bri.product_type || '] x' || bri.quantity::TEXT), ', ' ORDER BY bri.id),
+          ''
+        ) AS items_summary
+      FROM billing_returns br
+      JOIN billing_customers bc ON bc.id = br.customer_id
+      LEFT JOIN billing_return_items bri ON bri.return_id = br.id
+      GROUP BY br.id, br.invoice_id, br.customer_id, bc.full_name, br.return_total, br.is_refunded, br.notes, br.created_at
+      ORDER BY br.created_at DESC
+      LIMIT 300
+    `,
+  )
+
   const purchasedByType = new Map<string, number>()
   for (const row of purchasedStockResult.rows) {
     const key = String(row.product_type).toLowerCase()
@@ -214,10 +288,18 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
     soldByType.set(key, Number(row.sold_qty ?? 0))
   }
 
+  const returnedByType = new Map<string, number>()
+  for (const row of returnedStockResult.rows) {
+    const key = String(row.product_type).toLowerCase()
+    returnedByType.set(key, Number(row.returned_qty ?? 0))
+  }
+
   const stockByCategory = BILLING_PRODUCT_TYPES.map((productType) => {
     const key = productType.toLowerCase()
     const purchasedQty = Math.max(0, purchasedByType.get(key) ?? 0)
-    const soldQty = Math.max(0, soldByType.get(key) ?? 0)
+    const soldQtyRaw = Math.max(0, soldByType.get(key) ?? 0)
+    const returnedQty = Math.max(0, returnedByType.get(key) ?? 0)
+    const soldQty = Math.max(0, soldQtyRaw - returnedQty)
 
     return {
       productType,
@@ -235,20 +317,46 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
       openingBalance: Number.parseFloat(row.opening_balance ?? "0"),
       lastInvoiceAt: row.last_invoice_at ? new Date(row.last_invoice_at).toISOString() : null,
     })),
-    invoices: invoicesResult.rows.map((row) => ({
+    invoices: invoicesResult.rows.map((row) => {
+      const grossTotal = toMoney(Number.parseFloat(row.gross_total ?? row.total ?? "0"))
+      const returnTotal = toMoney(Math.max(0, Number.parseFloat(row.return_total ?? "0")))
+      const netTotal = toMoney(Math.max(0, grossTotal - returnTotal))
+      const paidAmountRaw = toMoney(Math.max(0, Number.parseFloat(row.paid_amount ?? "0")))
+      const paidAmount = toMoney(Math.min(paidAmountRaw, netTotal))
+      const dueAmount = toMoney(Math.max(0, netTotal - paidAmount))
+      const paymentStatus = dueAmount <= 0 ? "paid" : normalizePaymentStatus(row.payment_status)
+
+      return {
+        id: Number(row.id),
+        customerId: Number(row.customer_id),
+        customerName: row.customer_name,
+        customerPhone: row.customer_phone ?? null,
+        grossTotal,
+        returnTotal,
+        subtotal: Number.parseFloat(row.subtotal),
+        discountTotal: Number.parseFloat(row.discount_total),
+        taxTotal: Number.parseFloat(row.tax_total),
+        total: netTotal,
+        paidAmount,
+        dueAmount,
+        paymentStatus: paymentStatus as "pending" | "paid",
+        taxEnabled: row.tax_enabled === true,
+        createdAt: new Date(row.created_at).toISOString(),
+        itemCount: Number(row.item_count ?? 0),
+        itemsSummary: row.items_summary || "",
+      }
+    }),
+    returns: returnsResult.rows.map((row) => ({
       id: Number(row.id),
+      invoiceId: Number(row.invoice_id),
       customerId: Number(row.customer_id),
       customerName: row.customer_name,
-      customerPhone: row.customer_phone ?? null,
-      subtotal: Number.parseFloat(row.subtotal),
-      discountTotal: Number.parseFloat(row.discount_total),
-      taxTotal: Number.parseFloat(row.tax_total),
-      total: Number.parseFloat(row.total),
-      paymentStatus: normalizePaymentStatus(row.payment_status) as "pending" | "paid",
-      taxEnabled: row.tax_enabled === true,
-      createdAt: new Date(row.created_at).toISOString(),
-      itemCount: Number(row.item_count ?? 0),
+      returnTotal: Number.parseFloat(row.return_total ?? "0"),
+      isRefunded: row.is_refunded === true,
+      quantityTotal: Number(row.quantity_total ?? 0),
       itemsSummary: row.items_summary || "",
+      notes: row.notes ?? null,
+      createdAt: new Date(row.created_at).toISOString(),
     })),
     stockByCategory,
   }
@@ -304,6 +412,12 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
   const discountTotal = toMoney(calculatedItems.reduce((sum, item) => sum + item.discountValue, 0))
   const taxTotal = toMoney(calculatedItems.reduce((sum, item) => sum + item.taxAmount, 0))
   const total = toMoney(subtotal - discountTotal + taxTotal)
+  const requestedInitialPaidAmount = toMoney(Number(input.initialPaidAmount ?? 0))
+  if (!Number.isFinite(requestedInitialPaidAmount) || requestedInitialPaidAmount < 0) {
+    return { success: false, error: "Initial paid amount must be 0 or higher." }
+  }
+  const initialPaidAmount = toMoney(Math.min(total, Math.max(0, requestedInitialPaidAmount)))
+  const paymentStatus = initialPaidAmount >= total ? "paid" : "pending"
 
   let invoiceId: number | null = null
 
@@ -341,11 +455,13 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
           discount_total,
           tax_total,
           total,
+          paid_amount,
+          payment_status,
           tax_enabled,
           customer_phone,
           notes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
       `,
       [
@@ -354,6 +470,8 @@ export async function createBillingInvoice(input: CreateBillingInvoiceInput) {
         discountTotal.toFixed(2),
         taxTotal.toFixed(2),
         total.toFixed(2),
+        initialPaidAmount.toFixed(2),
+        paymentStatus,
         taxEnabled,
         customerPhone,
         notes,
@@ -527,6 +645,200 @@ export async function upsertBillingStockByCategory(input: UpsertBillingStockByCa
   }
 }
 
+export async function recordBillingPayment(invoiceId: number, amount: number) {
+  await requireAdminAccess()
+
+  if (!Number.isFinite(invoiceId) || invoiceId <= 0) {
+    return { success: false, error: "Invalid invoice id." }
+  }
+
+  const paymentAmount = toMoney(Number(amount))
+  if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    return { success: false, error: "Payment amount must be greater than 0." }
+  }
+
+  try {
+    await query("BEGIN")
+
+    const invoiceResult = await query("SELECT id, total, paid_amount FROM billing_invoices WHERE id = $1 LIMIT 1", [invoiceId])
+    if (invoiceResult.rows.length === 0) {
+      await query("ROLLBACK")
+      return { success: false, error: "Invoice not found." }
+    }
+
+    const invoiceRow = invoiceResult.rows[0]
+    const returnResult = await query(
+      "SELECT COALESCE(SUM(return_total), 0) AS return_total FROM billing_returns WHERE invoice_id = $1",
+      [invoiceId],
+    )
+
+    const grossTotal = toMoney(Number.parseFloat(invoiceRow.total ?? "0"))
+    const returnTotal = toMoney(Math.max(0, Number.parseFloat(returnResult.rows[0]?.return_total ?? "0")))
+    const netTotal = toMoney(Math.max(0, grossTotal - returnTotal))
+    const currentPaid = toMoney(Math.min(Math.max(0, Number.parseFloat(invoiceRow.paid_amount ?? "0")), netTotal))
+    const nextPaid = toMoney(Math.min(netTotal, currentPaid + paymentAmount))
+    const dueAmount = toMoney(Math.max(0, netTotal - nextPaid))
+    const paymentStatus = dueAmount <= 0 ? "paid" : "pending"
+
+    await query(
+      "UPDATE billing_invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+      [nextPaid.toFixed(2), paymentStatus, invoiceId],
+    )
+
+    await query("COMMIT")
+    revalidatePath("/admin")
+    return { success: true, paidAmount: nextPaid, dueAmount }
+  } catch (error) {
+    try {
+      await query("ROLLBACK")
+    } catch (rollbackError) {
+      console.error("Rollback error while recording payment:", rollbackError)
+    }
+    console.error("Record payment error:", error)
+    return { success: false, error: "Could not record payment amount." }
+  }
+}
+
+export async function createBillingReturn(input: CreateBillingReturnInput) {
+  await requireAdminAccess()
+
+  const customerId = Number(input.customerId)
+  const invoiceId = Number(input.invoiceId)
+  const productName = input.productName?.trim()
+  const productType = normalizeProductType(input.productType)
+  const quantity = Math.floor(Number(input.quantity))
+  const refundAmount = toMoney(Number(input.refundAmount))
+  const notes = input.notes?.trim() || null
+  const isRefunded = input.isRefunded === true
+
+  if (!Number.isFinite(customerId) || customerId <= 0) {
+    return { success: false, error: "Invalid customer." }
+  }
+  if (!Number.isFinite(invoiceId) || invoiceId <= 0) {
+    return { success: false, error: "Invalid invoice." }
+  }
+  if (!productName) {
+    return { success: false, error: "Product name is required for return." }
+  }
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return { success: false, error: "Return quantity must be at least 1." }
+  }
+  if (!Number.isFinite(refundAmount) || refundAmount < 0) {
+    return { success: false, error: "Refund amount must be 0 or higher." }
+  }
+
+  try {
+    await query("BEGIN")
+
+    const invoiceResult = await query(
+      "SELECT id, customer_id, total, paid_amount FROM billing_invoices WHERE id = $1 LIMIT 1",
+      [invoiceId],
+    )
+    if (invoiceResult.rows.length === 0) {
+      await query("ROLLBACK")
+      return { success: false, error: "Invoice not found." }
+    }
+
+    const invoiceRow = invoiceResult.rows[0]
+    if (Number(invoiceRow.customer_id) !== customerId) {
+      await query("ROLLBACK")
+      return { success: false, error: "Selected invoice does not belong to selected customer." }
+    }
+
+    const previousReturnsResult = await query(
+      "SELECT COALESCE(SUM(return_total), 0) AS return_total FROM billing_returns WHERE invoice_id = $1",
+      [invoiceId],
+    )
+    const grossTotal = toMoney(Number.parseFloat(invoiceRow.total ?? "0"))
+    const previousReturns = toMoney(Math.max(0, Number.parseFloat(previousReturnsResult.rows[0]?.return_total ?? "0")))
+    const remainingReturnableAmount = toMoney(Math.max(0, grossTotal - previousReturns))
+
+    if (refundAmount > remainingReturnableAmount) {
+      await query("ROLLBACK")
+      return { success: false, error: "Refund amount cannot exceed remaining invoice value after previous returns." }
+    }
+
+    const returnResult = await query(
+      `
+        INSERT INTO billing_returns (invoice_id, customer_id, return_total, is_refunded, notes, updated_at)
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+        RETURNING id
+      `,
+      [invoiceId, customerId, refundAmount.toFixed(2), isRefunded, notes],
+    )
+
+    const returnId = Number(returnResult.rows[0].id)
+    const unitRefund = quantity > 0 ? toMoney(refundAmount / quantity) : 0
+
+    await query(
+      `
+        INSERT INTO billing_return_items (
+          return_id,
+          product_name,
+          product_type,
+          quantity,
+          unit_refund,
+          line_refund
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [returnId, productName, productType, quantity, unitRefund.toFixed(2), refundAmount.toFixed(2)],
+    )
+
+    const updatedReturnsResult = await query(
+      "SELECT COALESCE(SUM(return_total), 0) AS return_total FROM billing_returns WHERE invoice_id = $1",
+      [invoiceId],
+    )
+    const updatedReturnTotal = toMoney(Math.max(0, Number.parseFloat(updatedReturnsResult.rows[0]?.return_total ?? "0")))
+    const netTotal = toMoney(Math.max(0, grossTotal - updatedReturnTotal))
+    const currentPaid = toMoney(Math.max(0, Number.parseFloat(invoiceRow.paid_amount ?? "0")))
+    const adjustedPaid = toMoney(Math.min(currentPaid, netTotal))
+    const paymentStatus = adjustedPaid >= netTotal ? "paid" : "pending"
+
+    await query(
+      "UPDATE billing_invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+      [adjustedPaid.toFixed(2), paymentStatus, invoiceId],
+    )
+
+    await query("COMMIT")
+    revalidatePath("/admin")
+    return { success: true, returnId }
+  } catch (error) {
+    try {
+      await query("ROLLBACK")
+    } catch (rollbackError) {
+      console.error("Rollback error while creating return:", rollbackError)
+    }
+    console.error("Create return error:", error)
+    return { success: false, error: "Could not save return." }
+  }
+}
+
+export async function updateBillingReturnRefundStatus(returnId: number, isRefunded: boolean) {
+  await requireAdminAccess()
+
+  if (!Number.isFinite(returnId) || returnId <= 0) {
+    return { success: false, error: "Invalid return id." }
+  }
+
+  try {
+    const result = await query(
+      "UPDATE billing_returns SET is_refunded = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [isRefunded, returnId],
+    )
+
+    if ((result.rowCount ?? 0) === 0) {
+      return { success: false, error: "Return entry not found." }
+    }
+
+    revalidatePath("/admin")
+    return { success: true }
+  } catch (error) {
+    console.error("Update return refund status error:", error)
+    return { success: false, error: "Could not update refund status." }
+  }
+}
+
 export async function updateBillingPaymentStatus(invoiceId: number, status: "pending" | "paid") {
   await requireAdminAccess()
 
@@ -537,13 +849,37 @@ export async function updateBillingPaymentStatus(invoiceId: number, status: "pen
   const paymentStatus = normalizePaymentStatus(status)
 
   try {
-    await query("UPDATE billing_invoices SET payment_status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [
-      paymentStatus,
-      invoiceId,
-    ])
+    await query("BEGIN")
+
+    const invoiceResult = await query("SELECT id, total FROM billing_invoices WHERE id = $1 LIMIT 1", [invoiceId])
+    if (invoiceResult.rows.length === 0) {
+      await query("ROLLBACK")
+      return { success: false, error: "Invoice not found." }
+    }
+
+    const returnResult = await query(
+      "SELECT COALESCE(SUM(return_total), 0) AS return_total FROM billing_returns WHERE invoice_id = $1",
+      [invoiceId],
+    )
+    const grossTotal = toMoney(Number.parseFloat(invoiceResult.rows[0].total ?? "0"))
+    const returnTotal = toMoney(Math.max(0, Number.parseFloat(returnResult.rows[0]?.return_total ?? "0")))
+    const netTotal = toMoney(Math.max(0, grossTotal - returnTotal))
+    const paidAmount = paymentStatus === "paid" ? netTotal : 0
+
+    await query(
+      "UPDATE billing_invoices SET payment_status = $1, paid_amount = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+      [paymentStatus, paidAmount.toFixed(2), invoiceId],
+    )
+
+    await query("COMMIT")
     revalidatePath("/admin")
     return { success: true }
   } catch (error) {
+    try {
+      await query("ROLLBACK")
+    } catch (rollbackError) {
+      console.error("Rollback error while updating payment status:", rollbackError)
+    }
     console.error("Update payment status error:", error)
     return { success: false, error: "Could not update payment status." }
   }

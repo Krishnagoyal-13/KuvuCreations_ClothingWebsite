@@ -1,5 +1,9 @@
 import { sql } from "@vercel/postgres"
 
+const globalForDbInit = globalThis as typeof globalThis & {
+  __kuvuDbInitPromise?: Promise<void>
+}
+
 // Helper function to execute SQL queries
 export async function query(text: string, params: any[] = []) {
   try {
@@ -13,13 +17,8 @@ export async function query(text: string, params: any[] = []) {
 }
 
 // Initialize database tables
-export async function initDatabase() {
-  const lockId = 80741231
-
+async function runDatabaseInit() {
   try {
-    // Prevent concurrent CREATE TABLE races across multiple server workers.
-    await query("SELECT pg_advisory_lock($1)", [lockId])
-
     // Create users table
     await query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -134,6 +133,7 @@ export async function initDatabase() {
         discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
         tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
         total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
         payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
         tax_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         customer_phone VARCHAR(30),
@@ -141,6 +141,38 @@ export async function initDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT billing_payment_status_check CHECK (payment_status IN ('pending', 'paid'))
+      )
+    `)
+
+    // Create billing returns table
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_returns (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES billing_invoices(id) ON DELETE CASCADE,
+        customer_id INTEGER NOT NULL REFERENCES billing_customers(id) ON DELETE CASCADE,
+        return_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        is_refunded BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT billing_return_total_check CHECK (return_total >= 0)
+      )
+    `)
+
+    // Create billing return items table
+    await query(`
+      CREATE TABLE IF NOT EXISTS billing_return_items (
+        id SERIAL PRIMARY KEY,
+        return_id INTEGER NOT NULL REFERENCES billing_returns(id) ON DELETE CASCADE,
+        product_name VARCHAR(255) NOT NULL,
+        product_type VARCHAR(100) NOT NULL DEFAULT 'Night suit',
+        quantity INTEGER NOT NULL,
+        unit_refund DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        line_refund DECIMAL(10, 2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT billing_return_item_quantity_check CHECK (quantity > 0),
+        CONSTRAINT billing_return_item_unit_refund_check CHECK (unit_refund >= 0),
+        CONSTRAINT billing_return_item_line_refund_check CHECK (line_refund >= 0)
       )
     `)
 
@@ -200,11 +232,19 @@ export async function initDatabase() {
     `)
     await query(`
       ALTER TABLE billing_invoices
+      ADD COLUMN IF NOT EXISTS paid_amount DECIMAL(10, 2) NOT NULL DEFAULT 0
+    `)
+    await query(`
+      ALTER TABLE billing_invoices
       ADD COLUMN IF NOT EXISTS tax_enabled BOOLEAN NOT NULL DEFAULT FALSE
     `)
     await query(`
       ALTER TABLE billing_invoices
       ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(30)
+    `)
+    await query(`
+      ALTER TABLE billing_returns
+      ADD COLUMN IF NOT EXISTS is_refunded BOOLEAN NOT NULL DEFAULT FALSE
     `)
 
     await query(`
@@ -235,22 +275,41 @@ export async function initDatabase() {
     await query(`
       CREATE INDEX IF NOT EXISTS idx_billing_invoices_payment_status ON billing_invoices(payment_status)
     `)
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_returns_invoice_id ON billing_returns(invoice_id)
+    `)
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_returns_customer_id ON billing_returns(customer_id)
+    `)
 
     await query(`
       CREATE INDEX IF NOT EXISTS idx_billing_invoice_items_product_type ON billing_invoice_items(product_type)
     `)
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_return_items_product_type ON billing_return_items(product_type)
+    `)
 
     console.log("Database initialized successfully")
-  } catch (error) {
+  } catch (error: any) {
+    // Another worker may have completed CREATE TABLE first.
+    if (error?.code === "23505" && error?.constraint === "pg_type_typname_nsp_index") {
+      console.warn("Database init race detected; continuing with existing schema")
+      return
+    }
     console.error("Error initializing database", error)
     throw error
-  } finally {
-    try {
-      await query("SELECT pg_advisory_unlock($1)", [lockId])
-    } catch (unlockError) {
-      console.error("Error releasing database init lock", unlockError)
-    }
   }
+}
+
+export async function initDatabase() {
+  if (!globalForDbInit.__kuvuDbInitPromise) {
+    globalForDbInit.__kuvuDbInitPromise = runDatabaseInit().catch((error) => {
+      globalForDbInit.__kuvuDbInitPromise = undefined
+      throw error
+    })
+  }
+
+  return globalForDbInit.__kuvuDbInitPromise
 }
 
 // Initialize the database on import

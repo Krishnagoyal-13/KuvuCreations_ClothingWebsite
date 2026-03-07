@@ -36,7 +36,7 @@ export default function AdminLoginCard() {
 
   return (
     <div className="container py-10">
-      <Card className="mx-auto max-w-lg border-[#1f2536]/15 bg-white/80 backdrop-blur">
+      <Card className="mx-auto max-w-lg border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-[#171f32]">
             <Lock className="h-5 w-5" />

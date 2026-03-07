@@ -3,10 +3,10 @@
 import { useState } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { Heart, ShoppingBag } from "lucide-react"
+import { ArrowRight, Heart, ShoppingBag } from "lucide-react"
 
+import InteractiveCard from "@/components/interactive-card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
@@ -20,38 +20,44 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
 const products = [
   {
     id: 1,
-    name: "Floral Summer Dress",
+    name: "Signal Satin Dress",
     price: 89.99,
     image: "/placeholder.svg?height=400&width=300",
+    descriptor: "A liquid silhouette for nights that need almost no styling effort.",
     isNew: true,
     isSale: false,
   },
   {
     id: 2,
-    name: "Casual Linen Blouse",
+    name: "Utility Silk Shirt",
     price: 49.99,
     originalPrice: 69.99,
     image: "/placeholder.svg?height=400&width=300",
+    descriptor: "Sharp enough for tailoring, soft enough to anchor every capsule.",
     isNew: false,
     isSale: true,
   },
   {
     id: 3,
-    name: "High-Waisted Jeans",
+    name: "Noir Column Trousers",
     price: 79.99,
     image: "/placeholder.svg?height=400&width=300",
+    descriptor: "Straight lines, deep tone, and enough structure to carry the whole look.",
     isNew: true,
     isSale: false,
   },
   {
     id: 4,
-    name: "Oversized Knit Sweater",
+    name: "Afterglow Knit Set",
     price: 64.99,
     image: "/placeholder.svg?height=400&width=300",
+    descriptor: "A softer layer for off-duty frames without losing the editorial read.",
     isNew: false,
     isSale: false,
   },
 ]
+
+const layoutClasses = ["lg:col-span-7", "lg:col-span-5", "lg:col-span-5", "lg:col-span-7"]
 
 export default function FeaturedProducts() {
   const [wishlist, setWishlist] = useState<number[]>([])
@@ -65,66 +71,84 @@ export default function FeaturedProducts() {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-      {products.map((product) => (
-        <Card
+    <div className="grid grid-cols-12 gap-5">
+      {products.map((product, index) => (
+        <InteractiveCard
           key={product.id}
-          className="group overflow-hidden rounded-3xl border border-[#1f2536]/10 bg-white/70 shadow-[0_14px_40px_rgba(16,22,38,0.08)] transition-all duration-500 hover:-translate-y-1 hover:shadow-[0_22px_60px_rgba(16,22,38,0.16)]"
+          className={`group col-span-12 rounded-[2rem] ${layoutClasses[index]}`}
+          delay={120 + index * 80}
+          tilt={8}
         >
-          <CardContent className="p-0">
+          <div className="antimatter-card h-full overflow-hidden p-0 transition-transform duration-500 group-hover:-translate-y-1">
             <div className="relative">
               <Link href={`/products/${product.id}`}>
-                <div className="relative h-80 w-full overflow-hidden">
+                <div className="relative h-80 w-full overflow-hidden lg:h-[26rem]">
                   <Image
                     src={product.image || "/placeholder.svg"}
                     alt={product.name}
                     fill
-                    className="object-cover transition-transform duration-500 group-hover:scale-110"
+                    className="object-cover opacity-85 transition-transform duration-700 group-hover:scale-105"
                   />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#07090d] via-[#07090d]/28 to-transparent" />
                 </div>
               </Link>
-              <div className="absolute top-3 right-3 z-10">
+              <div className="absolute right-4 top-4 z-10">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full border border-white/60 bg-white/80 text-[#E98A2D] backdrop-blur-sm hover:bg-white"
+                  className="rounded-full border border-white/[0.12] bg-black/25 text-[#f6eee2] backdrop-blur-md hover:bg-[#ff7b3a] hover:text-[#0a0c10]"
                   onClick={() => toggleWishlist(product.id)}
                 >
-                  <Heart className={`h-5 w-5 ${wishlist.includes(product.id) ? "fill-[#E98A2D] text-[#E98A2D]" : ""}`} />
+                  <Heart className={`h-5 w-5 ${wishlist.includes(product.id) ? "fill-[#ff7b3a] text-[#ff7b3a]" : ""}`} />
                   <span className="sr-only">Add to wishlist</span>
                 </Button>
               </div>
-              <div className="absolute top-3 left-3 flex flex-col gap-2">
-                {product.isNew && <Badge className="bg-[#171f32] text-[#FCEBCD] hover:bg-[#171f32]">New</Badge>}
-                {product.isSale && <Badge className="bg-[#E98A2D] text-[#171f32] hover:bg-[#E98A2D]">Sale</Badge>}
+              <div className="absolute left-4 top-4 flex flex-col gap-2">
+                {product.isNew && <Badge className="bg-[#f6ede1] text-[#0a0c10] hover:bg-[#f6ede1]">New</Badge>}
+                {product.isSale && <Badge className="bg-[#ff7b3a] text-[#0a0c10] hover:bg-[#ff7b3a]">Sale</Badge>}
               </div>
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#131a2e]/40 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
             </div>
-            <div className="p-4">
+            <div className="p-5 sm:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#f2bc93]">
+                  Signal 0{index + 1}
+                </p>
+                <span className="text-xs uppercase tracking-[0.18em] text-[#9f978b]">Editorial product frame</span>
+              </div>
+
               <Link href={`/products/${product.id}`} className="hover:underline">
-                <h3 className="mb-1 text-lg font-semibold text-[#171f32]">{product.name}</h3>
+                <h3 className="mt-4 text-2xl text-[#f8f1e6]">{product.name}</h3>
               </Link>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-[#171f32]">{currencyFormatter.format(product.price)}</span>
+              <p className="mt-3 max-w-xl text-sm leading-7 text-[#a9a297]">{product.descriptor}</p>
+
+              <div className="mt-5 flex items-center gap-2">
+                <span className="font-semibold text-[#f8f1e6]">{currencyFormatter.format(product.price)}</span>
                 {product.originalPrice && (
                   <span className="text-sm text-[#7a7f92] line-through">
                     {currencyFormatter.format(product.originalPrice)}
                   </span>
                 )}
               </div>
-              <div className="mt-4 flex gap-2">
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 rounded-full border-[#171f32]/20 bg-white/60 text-[#171f32] hover:border-[#E98A2D]/40 hover:bg-[#fff3df] hover:text-[#171f32]"
+                  className="rounded-full border-white/[0.12] bg-white/[0.04] text-[#f6eee2] hover:bg-[#ff7b3a] hover:text-[#0a0c10]"
                 >
-                  <ShoppingBag className="h-4 w-4 mr-2" />
+                  <ShoppingBag className="mr-2 h-4 w-4" />
                   Add to Cart
                 </Button>
+                <Link
+                  href={`/products/${product.id}`}
+                  className="inline-flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-[#f2bc93] transition-colors hover:text-[#f8f1e6]"
+                >
+                  Open Frame <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </InteractiveCard>
       ))}
     </div>
   )

@@ -2,17 +2,21 @@
 
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { Calculator, CheckCircle2, Download, Plus, ReceiptText, ShieldCheck, Trash2 } from "lucide-react"
+import { Calculator, CheckCircle2, Download, Plus, ReceiptText, RotateCcw, ShieldCheck, Trash2 } from "lucide-react"
 
 import { useUser } from "@/context/user-context"
 import {
+  createBillingReturn,
   createBillingInvoice,
   logoutAdmin,
+  recordBillingPayment,
+  updateBillingReturnRefundStatus,
   updateBillingPaymentStatus,
   upsertBillingStockByCategory,
   upsertCustomerOpeningBalance,
   type BillingCustomerOption,
   type BillingInvoiceRecord,
+  type BillingReturnRecord,
   type BillingStockCategoryRecord,
 } from "@/lib/admin-actions"
 import { BILLING_PRODUCT_TYPES } from "@/lib/billing-constants"
@@ -37,6 +41,7 @@ interface BillingRowInput {
 interface AdminDashboardProps {
   customers: BillingCustomerOption[]
   invoices: BillingInvoiceRecord[]
+  returns: BillingReturnRecord[]
   stockByCategory: BillingStockCategoryRecord[]
 }
 
@@ -120,17 +125,27 @@ function getRowTotals(row: BillingRowInput, taxEnabled: boolean) {
   }
 }
 
-export default function AdminDashboard({ customers, invoices, stockByCategory }: AdminDashboardProps) {
+export default function AdminDashboard({ customers, invoices, returns, stockByCategory }: AdminDashboardProps) {
   const [selectedCustomer, setSelectedCustomer] = useState("")
   const [customerName, setCustomerName] = useState("")
   const [customerPhone, setCustomerPhone] = useState("")
+  const [initialPaidAmount, setInitialPaidAmount] = useState("")
   const [notes, setNotes] = useState("")
   const [items, setItems] = useState<BillingRowInput[]>([
     { productName: "", productType: BILLING_PRODUCT_TYPES[0], quantity: 1, unitPrice: 0, discountPercent: 0, taxPercent: 0 },
   ])
   const [taxEnabled, setTaxEnabled] = useState(false)
   const [paymentCustomerFilter, setPaymentCustomerFilter] = useState("all")
+  const [manualPaymentInput, setManualPaymentInput] = useState<Record<number, string>>({})
   const [accountCustomerFilter, setAccountCustomerFilter] = useState("")
+  const [returnCustomerFilter, setReturnCustomerFilter] = useState("")
+  const [returnInvoiceId, setReturnInvoiceId] = useState("")
+  const [returnProductName, setReturnProductName] = useState("")
+  const [returnProductType, setReturnProductType] = useState(BILLING_PRODUCT_TYPES[0])
+  const [returnQuantity, setReturnQuantity] = useState("1")
+  const [returnAmount, setReturnAmount] = useState("")
+  const [returnIsRefunded, setReturnIsRefunded] = useState(false)
+  const [returnNotes, setReturnNotes] = useState("")
   const [balanceCustomerId, setBalanceCustomerId] = useState("")
   const [balanceCustomerName, setBalanceCustomerName] = useState("")
   const [balanceAmount, setBalanceAmount] = useState("")
@@ -145,11 +160,16 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
   const [calculatorExpression, setCalculatorExpression] = useState("")
   const [calculatorHistory, setCalculatorHistory] = useState<Array<{ expression: string; result: number }>>([])
   const [formError, setFormError] = useState("")
+  const [paymentError, setPaymentError] = useState("")
+  const [returnError, setReturnError] = useState("")
   const [balanceError, setBalanceError] = useState("")
   const [stockError, setStockError] = useState("")
   const [isPrintingPdf, setIsPrintingPdf] = useState(false)
   const [isSubmitting, startSubmitting] = useTransition()
   const [isUpdatingStatus, startUpdatingStatus] = useTransition()
+  const [isRecordingPayment, startRecordingPayment] = useTransition()
+  const [isSavingReturn, startSavingReturn] = useTransition()
+  const [isUpdatingReturnRefund, startUpdatingReturnRefund] = useTransition()
   const [isSavingBalance, startSavingBalance] = useTransition()
   const [isSavingStock, startSavingStock] = useTransition()
   const [isLoggingOut, startLoggingOut] = useTransition()
@@ -168,6 +188,12 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
     )
   }, [stockByCategory])
 
+  useEffect(() => {
+    setReturnInvoiceId("")
+    setReturnIsRefunded(false)
+    setReturnError("")
+  }, [returnCustomerFilter])
+
   const calculatedRows = useMemo(() => items.map((row) => getRowTotals(row, taxEnabled)), [items, taxEnabled])
 
   const billSummary = useMemo(
@@ -179,6 +205,16 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
     }),
     [calculatedRows],
   )
+
+  const billPaymentPreview = useMemo(() => {
+    const paidAmount = roundMoney(Math.min(Math.max(parseNumber(initialPaidAmount), 0), billSummary.total))
+    const dueAmount = roundMoney(Math.max(0, billSummary.total - paidAmount))
+    return {
+      paidAmount,
+      dueAmount,
+      status: dueAmount <= 0 ? "paid" : "pending",
+    }
+  }, [billSummary.total, initialPaidAmount])
 
   const calculatorResult = useMemo(() => evaluateExpression(calculatorExpression), [calculatorExpression])
 
@@ -192,16 +228,8 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
 
   const paymentSummary = useMemo(
     () => ({
-      paidTotal: roundMoney(
-        filteredPaymentInvoices
-          .filter((invoice) => invoice.paymentStatus === "paid")
-          .reduce((sum, invoice) => sum + invoice.total, 0),
-      ),
-      pendingTotal: roundMoney(
-        filteredPaymentInvoices
-          .filter((invoice) => invoice.paymentStatus === "pending")
-          .reduce((sum, invoice) => sum + invoice.total, 0),
-      ),
+      paidTotal: roundMoney(filteredPaymentInvoices.reduce((sum, invoice) => sum + invoice.paidAmount, 0)),
+      pendingTotal: roundMoney(filteredPaymentInvoices.reduce((sum, invoice) => sum + invoice.dueAmount, 0)),
     }),
     [filteredPaymentInvoices],
   )
@@ -224,14 +252,8 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
   const accountSummary = useMemo(() => {
     const openingBalance = selectedAccountCustomer?.openingBalance ?? 0
     const billedTotal = roundMoney(accountInvoices.reduce((sum, invoice) => sum + invoice.total, 0))
-    const paidTotal = roundMoney(
-      accountInvoices.filter((invoice) => invoice.paymentStatus === "paid").reduce((sum, invoice) => sum + invoice.total, 0),
-    )
-    const invoicePendingTotal = roundMoney(
-      accountInvoices
-        .filter((invoice) => invoice.paymentStatus === "pending")
-        .reduce((sum, invoice) => sum + invoice.total, 0),
-    )
+    const paidTotal = roundMoney(accountInvoices.reduce((sum, invoice) => sum + invoice.paidAmount, 0))
+    const invoicePendingTotal = roundMoney(accountInvoices.reduce((sum, invoice) => sum + invoice.dueAmount, 0))
 
     return {
       openingBalance: roundMoney(openingBalance),
@@ -247,6 +269,22 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
     () => customers.filter((customer) => customer.openingBalance > 0).sort((a, b) => b.openingBalance - a.openingBalance),
     [customers],
   )
+
+  const availableReturnInvoices = useMemo(() => {
+    if (!returnCustomerFilter) {
+      return []
+    }
+    const customerId = Number(returnCustomerFilter)
+    return invoices.filter((invoice) => invoice.customerId === customerId)
+  }, [invoices, returnCustomerFilter])
+
+  const filteredReturns = useMemo(() => {
+    if (!returnCustomerFilter) {
+      return returns
+    }
+    const customerId = Number(returnCustomerFilter)
+    return returns.filter((entry) => entry.customerId === customerId)
+  }, [returns, returnCustomerFilter])
 
   const handleSelectCustomer = (value: string) => {
     setSelectedCustomer(value)
@@ -320,6 +358,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
     setSelectedCustomer("")
     setCustomerName("")
     setCustomerPhone("")
+    setInitialPaidAmount("")
     setNotes("")
     setTaxEnabled(false)
     setItems([{ productName: "", productType: BILLING_PRODUCT_TYPES[0], quantity: 1, unitPrice: 0, discountPercent: 0, taxPercent: 0 }])
@@ -332,6 +371,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
       const result = await createBillingInvoice({
         customerName,
         customerPhone,
+        initialPaidAmount: parseNumber(initialPaidAmount),
         notes,
         items,
         taxEnabled,
@@ -388,6 +428,133 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
       toast({
         title: "Payment status updated",
         description: `Invoice #${invoice.id} marked as ${nextStatus}.`,
+      })
+      router.refresh()
+    })
+  }
+
+  const handleRecordManualPayment = (invoice: BillingInvoiceRecord) => {
+    setPaymentError("")
+    startRecordingPayment(async () => {
+      const amount = parseNumber(manualPaymentInput[invoice.id] ?? "0")
+      if (!Number.isFinite(amount) || amount <= 0) {
+        setPaymentError("Enter a valid payment amount greater than 0.")
+        toast({
+          title: "Invalid amount",
+          description: "Please enter a valid partial payment amount.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const result = await recordBillingPayment(invoice.id, amount)
+      if (!result.success) {
+        const errorMessage = result.error || "Could not record payment."
+        setPaymentError(errorMessage)
+        toast({
+          title: "Payment update failed",
+          description: errorMessage,
+          variant: "destructive",
+        })
+        return
+      }
+
+      setManualPaymentInput((current) => ({ ...current, [invoice.id]: "" }))
+      toast({
+        title: "Payment recorded",
+        description: `INR ${amount.toFixed(2)} recorded for Invoice #${invoice.id}.`,
+      })
+      router.refresh()
+    })
+  }
+
+  const handleCreateReturn = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setReturnError("")
+
+    startSavingReturn(async () => {
+      const customerId = Number(returnCustomerFilter)
+      const invoiceId = Number(returnInvoiceId)
+      const quantity = Math.floor(parseNumber(returnQuantity))
+      const refundAmount = parseNumber(returnAmount)
+
+      if (!Number.isFinite(customerId) || customerId <= 0) {
+        setReturnError("Select a customer for return entry.")
+        return
+      }
+
+      if (!Number.isFinite(invoiceId) || invoiceId <= 0) {
+        setReturnError("Select an invoice for return entry.")
+        return
+      }
+
+      if (!returnProductName.trim()) {
+        setReturnError("Product name is required.")
+        return
+      }
+
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        setReturnError("Return quantity must be at least 1.")
+        return
+      }
+
+      if (!Number.isFinite(refundAmount) || refundAmount < 0) {
+        setReturnError("Refund amount must be 0 or higher.")
+        return
+      }
+
+      const result = await createBillingReturn({
+        customerId,
+        invoiceId,
+        productName: returnProductName,
+        productType: returnProductType,
+        quantity,
+        refundAmount,
+        isRefunded: returnIsRefunded,
+        notes: returnNotes,
+      })
+
+      if (!result.success) {
+        const errorMessage = result.error || "Could not save return."
+        setReturnError(errorMessage)
+        toast({
+          title: "Return failed",
+          description: errorMessage,
+          variant: "destructive",
+        })
+        return
+      }
+
+      setReturnProductName("")
+      setReturnQuantity("1")
+      setReturnAmount("")
+      setReturnIsRefunded(false)
+      setReturnNotes("")
+      toast({
+        title: "Return recorded",
+        description: `Return entry #${result.returnId} saved successfully.`,
+      })
+      router.refresh()
+    })
+  }
+
+  const handleToggleReturnRefund = (entry: BillingReturnRecord) => {
+    startUpdatingReturnRefund(async () => {
+      const nextStatus = !entry.isRefunded
+      const result = await updateBillingReturnRefundStatus(entry.id, nextStatus)
+
+      if (!result.success) {
+        toast({
+          title: "Refund status update failed",
+          description: result.error || "Could not update refund status.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Refund status updated",
+        description: `Return #${entry.id} marked as ${nextStatus ? "refunded" : "not refunded"}.`,
       })
       router.refresh()
     })
@@ -562,7 +729,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
 
     const renderRows = (rows: BillingInvoiceRecord[]) => {
       if (rows.length === 0) {
-        return `<tr><td colspan=\"5\" style=\"text-align:center;color:#6b7280\">No invoices</td></tr>`
+        return `<tr><td colspan=\"6\" style=\"text-align:center;color:#6b7280\">No invoices</td></tr>`
       }
 
       return rows
@@ -573,6 +740,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
               <td>${escapeHtml(formatDate(invoice.createdAt))}</td>
               <td>${escapeHtml(invoice.itemsSummary || `${invoice.itemCount} items`)}</td>
               <td>${formatCurrency(invoice.total)}</td>
+              <td>${formatCurrency(invoice.dueAmount)}</td>
               <td>${invoice.paymentStatus === "paid" ? "Paid" : "Pending"}</td>
             </tr>
           `,
@@ -633,6 +801,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                 <th>Date</th>
                 <th>Items</th>
                 <th>Total</th>
+                <th>Due</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -649,6 +818,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                 <th>Date</th>
                 <th>Items</th>
                 <th>Total</th>
+                <th>Due</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -855,6 +1025,9 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
             <TabsTrigger value="account" className="min-w-[110px] rounded-lg px-3 py-2 text-xs sm:text-sm">
               Account
             </TabsTrigger>
+            <TabsTrigger value="returns" className="min-w-[110px] rounded-lg px-3 py-2 text-xs sm:text-sm">
+              Return
+            </TabsTrigger>
             <TabsTrigger value="balances" className="min-w-[146px] rounded-lg px-3 py-2 text-xs sm:text-sm">
               Opening Balance
             </TabsTrigger>
@@ -862,7 +1035,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
         </div>
 
         <TabsContent value="billing">
-          <Card className="border-[#1f2536]/15 bg-white/80 backdrop-blur">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Create Customer Bill</CardTitle>
               <CardDescription>
@@ -890,7 +1063,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
                   <div className="space-y-2">
                     <label htmlFor="existing-customer" className="text-sm font-medium text-[#171f32]">
                       Previous Customers
@@ -935,6 +1108,22 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                       className="border-[#1f2536]/20"
                     />
                   </div>
+                  <div className="space-y-2">
+                    <label htmlFor="billing-initial-paid-amount" className="text-sm font-medium text-[#171f32]">
+                      Partial Payment (optional)
+                    </label>
+                    <Input
+                      id="billing-initial-paid-amount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={initialPaidAmount}
+                      onChange={(event) => setInitialPaidAmount(event.target.value)}
+                      placeholder="0.00"
+                      className="border-[#1f2536]/20"
+                    />
+                    <p className="text-xs text-[#5f667b]">Used as paid amount while creating bill.</p>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -946,7 +1135,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                     </Button>
                   </div>
 
-                  <div className="flex flex-col gap-2 rounded-md border border-[#1f2536]/15 bg-[#f8f3e8]/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-2 rounded-md border border-[#1f2536]/[0.15] bg-[#f8f3e8]/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <Checkbox id="tax-enabled" checked={taxEnabled} onCheckedChange={(checked) => setTaxEnabled(checked === true)} />
                       <label htmlFor="tax-enabled" className="cursor-pointer text-sm font-medium text-[#171f32]">
@@ -1281,9 +1470,27 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                         <span className="font-medium text-[#171f32]">{formatCurrency(billSummary.taxTotal)}</span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between border-t border-[#1f2536]/15 pt-2 text-base font-semibold text-[#171f32]">
+                    <div className="flex items-center justify-between border-t border-[#1f2536]/[0.15] pt-2 text-base font-semibold text-[#171f32]">
                       <span>Total</span>
                       <span>{formatCurrency(billSummary.total)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[#3b4562]">
+                      <span>Paid At Billing</span>
+                      <span className="font-medium text-emerald-700">{formatCurrency(billPaymentPreview.paidAmount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[#3b4562]">
+                      <span>Due After Billing</span>
+                      <span className="font-medium text-amber-700">{formatCurrency(billPaymentPreview.dueAmount)}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[#3b4562]">
+                      <span>Expected Status</span>
+                      {billPaymentPreview.status === "paid" ? (
+                        <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Paid</Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-amber-500 text-amber-700">
+                          Pending
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
@@ -1314,7 +1521,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
         </TabsContent>
 
         <TabsContent value="orders">
-          <Card className="border-[#1f2536]/15 bg-white/80 backdrop-blur">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ReceiptText className="h-5 w-5" />
@@ -1396,10 +1603,10 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
         </TabsContent>
 
         <TabsContent value="payments">
-          <Card className="border-[#1f2536]/15 bg-white/80 backdrop-blur">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Payment Done / Pending</CardTitle>
-              <CardDescription>Filter by customer and mark invoices as paid or pending.</CardDescription>
+              <CardDescription>Filter by customer, add partial manual payments, and update status.</CardDescription>
             </CardHeader>
             <CardContent>
               {invoices.length === 0 ? (
@@ -1450,72 +1657,154 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                           )}
                         </div>
                         <p className="mt-1 text-sm text-[#3c455e]">{invoice.customerName}</p>
-                        <p className="mt-1 text-sm font-semibold text-[#171f32]">{formatCurrency(invoice.total)}</p>
-                        <Button
-                          size="sm"
-                          variant={invoice.paymentStatus === "paid" ? "outline" : "default"}
-                          onClick={() => togglePaymentStatus(invoice)}
-                          disabled={isUpdatingStatus}
-                          className={`mt-3 w-full ${
-                            invoice.paymentStatus === "paid"
-                              ? "border-[#1f2536]/20"
-                              : "bg-[#171f32] text-[#FCEBCD] hover:bg-[#2b3652]"
-                          }`}
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          {invoice.paymentStatus === "paid" ? "Mark Pending" : "Mark Paid"}
-                        </Button>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <p className="text-[#5f667b]">Total</p>
+                            <p className="font-semibold text-[#171f32]">{formatCurrency(invoice.total)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#5f667b]">Paid</p>
+                            <p className="font-semibold text-emerald-700">{formatCurrency(invoice.paidAmount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#5f667b]">Due</p>
+                            <p className="font-semibold text-amber-700">{formatCurrency(invoice.dueAmount)}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          <label className="text-xs font-medium text-[#5f667b]">Add Partial Payment</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={manualPaymentInput[invoice.id] ?? ""}
+                            onChange={(event) =>
+                              setManualPaymentInput((current) => ({
+                                ...current,
+                                [invoice.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Enter amount"
+                            className="border-[#1f2536]/20"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRecordManualPayment(invoice)}
+                            disabled={isRecordingPayment}
+                            className="w-full border-[#1f2536]/20"
+                          >
+                            Add Payment
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={invoice.paymentStatus === "paid" ? "outline" : "default"}
+                            onClick={() => togglePaymentStatus(invoice)}
+                            disabled={isUpdatingStatus}
+                            className={`w-full ${
+                              invoice.paymentStatus === "paid"
+                                ? "border-[#1f2536]/20"
+                                : "bg-[#171f32] text-[#FCEBCD] hover:bg-[#2b3652]"
+                            }`}
+                          >
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                            {invoice.paymentStatus === "paid" ? "Mark Pending" : "Mark Paid"}
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
 
                   <div className="hidden overflow-x-auto md:block">
-                    <table className="w-full min-w-[700px] text-left text-sm">
+                    <table className="w-full min-w-[1020px] text-left text-sm">
                       <thead>
                         <tr className="border-b border-[#1f2536]/10 text-[#5f667b]">
                           <th className="px-3 py-2">Invoice</th>
                           <th className="px-3 py-2">Customer</th>
                           <th className="px-3 py-2">Total</th>
+                          <th className="px-3 py-2">Paid</th>
+                          <th className="px-3 py-2">Due</th>
                           <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Partial Payment</th>
                           <th className="px-3 py-2">Action</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredPaymentInvoices.map((invoice) => (
-                          <tr key={invoice.id} className="border-b border-[#1f2536]/10">
-                            <td className="px-3 py-2 font-medium">#{invoice.id}</td>
-                            <td className="px-3 py-2">{invoice.customerName}</td>
-                            <td className="px-3 py-2 font-semibold">{formatCurrency(invoice.total)}</td>
-                            <td className="px-3 py-2">
-                              {invoice.paymentStatus === "paid" ? (
-                                <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Paid</Badge>
-                              ) : (
-                                <Badge variant="outline" className="border-amber-500 text-amber-700">
-                                  Pending
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              <Button
-                                size="sm"
-                                variant={invoice.paymentStatus === "paid" ? "outline" : "default"}
-                                onClick={() => togglePaymentStatus(invoice)}
-                                disabled={isUpdatingStatus}
-                                className={
-                                  invoice.paymentStatus === "paid"
-                                    ? "border-[#1f2536]/20"
-                                    : "bg-[#171f32] text-[#FCEBCD] hover:bg-[#2b3652]"
-                                }
-                              >
-                                <CheckCircle2 className="mr-2 h-4 w-4" />
-                                {invoice.paymentStatus === "paid" ? "Mark Pending" : "Mark Paid"}
-                              </Button>
+                        {filteredPaymentInvoices.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-3 py-4 text-center text-[#5f667b]">
+                              No invoices found for selected customer.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          filteredPaymentInvoices.map((invoice) => (
+                            <tr key={invoice.id} className="border-b border-[#1f2536]/10">
+                              <td className="px-3 py-2 font-medium">#{invoice.id}</td>
+                              <td className="px-3 py-2">{invoice.customerName}</td>
+                              <td className="px-3 py-2 font-semibold">{formatCurrency(invoice.total)}</td>
+                              <td className="px-3 py-2 font-medium text-emerald-700">{formatCurrency(invoice.paidAmount)}</td>
+                              <td className="px-3 py-2 font-medium text-amber-700">{formatCurrency(invoice.dueAmount)}</td>
+                              <td className="px-3 py-2">
+                                {invoice.paymentStatus === "paid" ? (
+                                  <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Paid</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-500 text-amber-700">
+                                    Pending
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step="0.01"
+                                    value={manualPaymentInput[invoice.id] ?? ""}
+                                    onChange={(event) =>
+                                      setManualPaymentInput((current) => ({
+                                        ...current,
+                                        [invoice.id]: event.target.value,
+                                      }))
+                                    }
+                                    placeholder="Amount"
+                                    className="h-8 w-28 border-[#1f2536]/20"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRecordManualPayment(invoice)}
+                                    disabled={isRecordingPayment}
+                                    className="h-8 border-[#1f2536]/20 px-3"
+                                  >
+                                    Add
+                                  </Button>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Button
+                                  size="sm"
+                                  variant={invoice.paymentStatus === "paid" ? "outline" : "default"}
+                                  onClick={() => togglePaymentStatus(invoice)}
+                                  disabled={isUpdatingStatus}
+                                  className={
+                                    invoice.paymentStatus === "paid"
+                                      ? "border-[#1f2536]/20"
+                                      : "bg-[#171f32] text-[#FCEBCD] hover:bg-[#2b3652]"
+                                  }
+                                >
+                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                                  {invoice.paymentStatus === "paid" ? "Mark Pending" : "Mark Paid"}
+                                </Button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  {paymentError && <p className="text-sm text-red-600">{paymentError}</p>}
                 </div>
               )}
             </CardContent>
@@ -1523,7 +1812,7 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
         </TabsContent>
 
         <TabsContent value="account">
-          <Card className="border-[#1f2536]/15 bg-white/80 backdrop-blur">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Customer Account Summary</CardTitle>
               <CardDescription>Pick a customer to see opening balance, paid and pending totals.</CardDescription>
@@ -1565,11 +1854,11 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-xl border border-[#1f2536]/12 bg-[#eef2ff] p-3">
+                    <div className="rounded-xl border border-[#1f2536]/[0.12] bg-[#eef2ff] p-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#5f667b]">Opening Balance</p>
                       <p className="text-2xl font-semibold text-[#171f32]">{formatCurrency(accountSummary.openingBalance)}</p>
                     </div>
-                    <div className="rounded-xl border border-[#1f2536]/12 bg-[#f8f3e8]/70 p-3">
+                    <div className="rounded-xl border border-[#1f2536]/[0.12] bg-[#f8f3e8]/70 p-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#5f667b]">Invoice Total</p>
                       <p className="text-2xl font-semibold text-[#171f32]">{formatCurrency(accountSummary.billedTotal)}</p>
                     </div>
@@ -1610,16 +1899,16 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                         <p className="mt-1 text-xs text-[#5f667b]">{formatDate(invoice.createdAt)}</p>
                         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <p className="text-[#5f667b]">Discount</p>
-                            <p className="font-medium text-[#171f32]">{formatCurrency(invoice.discountTotal)}</p>
-                          </div>
-                          <div>
-                            <p className="text-[#5f667b]">Tax</p>
-                            <p className="font-medium text-[#171f32]">{formatCurrency(invoice.taxTotal)}</p>
-                          </div>
-                          <div>
                             <p className="text-[#5f667b]">Total</p>
-                            <p className="font-semibold text-[#171f32]">{formatCurrency(invoice.total)}</p>
+                            <p className="font-medium text-[#171f32]">{formatCurrency(invoice.total)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#5f667b]">Paid</p>
+                            <p className="font-medium text-emerald-700">{formatCurrency(invoice.paidAmount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#5f667b]">Due</p>
+                            <p className="font-semibold text-amber-700">{formatCurrency(invoice.dueAmount)}</p>
                           </div>
                         </div>
                       </div>
@@ -1632,9 +1921,9 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                         <tr className="border-b border-[#1f2536]/10 text-[#5f667b]">
                           <th className="px-3 py-2">Invoice</th>
                           <th className="px-3 py-2">Date</th>
-                          <th className="px-3 py-2">Discount</th>
-                          <th className="px-3 py-2">Tax</th>
                           <th className="px-3 py-2">Total</th>
+                          <th className="px-3 py-2">Paid</th>
+                          <th className="px-3 py-2">Due</th>
                           <th className="px-3 py-2">Status</th>
                         </tr>
                       </thead>
@@ -1643,9 +1932,9 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
                           <tr key={invoice.id} className="border-b border-[#1f2536]/10">
                             <td className="px-3 py-2 font-medium">#{invoice.id}</td>
                             <td className="px-3 py-2">{formatDate(invoice.createdAt)}</td>
-                            <td className="px-3 py-2">{formatCurrency(invoice.discountTotal)}</td>
-                            <td className="px-3 py-2">{formatCurrency(invoice.taxTotal)}</td>
                             <td className="px-3 py-2 font-semibold">{formatCurrency(invoice.total)}</td>
+                            <td className="px-3 py-2 font-medium text-emerald-700">{formatCurrency(invoice.paidAmount)}</td>
+                            <td className="px-3 py-2 font-medium text-amber-700">{formatCurrency(invoice.dueAmount)}</td>
                             <td className="px-3 py-2">
                               {invoice.paymentStatus === "paid" ? (
                                 <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Paid</Badge>
@@ -1666,8 +1955,278 @@ export default function AdminDashboard({ customers, invoices, stockByCategory }:
           </Card>
         </TabsContent>
 
+        <TabsContent value="returns">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <RotateCcw className="h-5 w-5 text-[#171f32]" />
+                Return Management
+              </CardTitle>
+              <CardDescription>Record returned pieces and maintain refund totals against invoice value.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <form onSubmit={handleCreateReturn} className="space-y-4 rounded-xl border border-[#1f2536]/10 bg-[#f8f3e8]/60 p-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="space-y-2">
+                    <label htmlFor="return-customer-filter" className="text-sm font-medium text-[#171f32]">
+                      Customer
+                    </label>
+                    <select
+                      id="return-customer-filter"
+                      value={returnCustomerFilter}
+                      onChange={(event) => setReturnCustomerFilter(event.target.value)}
+                      className="flex h-10 w-full rounded-md border border-[#1f2536]/20 bg-white px-3 py-2 text-sm text-[#171f32]"
+                    >
+                      <option value="">Select customer</option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={String(customer.id)}>
+                          {customer.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="return-invoice-id" className="text-sm font-medium text-[#171f32]">
+                      Invoice
+                    </label>
+                    <select
+                      id="return-invoice-id"
+                      value={returnInvoiceId}
+                      onChange={(event) => setReturnInvoiceId(event.target.value)}
+                      disabled={!returnCustomerFilter}
+                      className="flex h-10 w-full rounded-md border border-[#1f2536]/20 bg-white px-3 py-2 text-sm text-[#171f32] disabled:cursor-not-allowed disabled:bg-slate-100"
+                    >
+                      <option value="">{returnCustomerFilter ? "Select invoice" : "Select customer first"}</option>
+                      {availableReturnInvoices.map((invoice) => (
+                        <option key={`return-invoice-${invoice.id}`} value={String(invoice.id)}>
+                          {`#${invoice.id} - Due ${formatCurrency(invoice.dueAmount)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="return-product-name" className="text-sm font-medium text-[#171f32]">
+                      Product Name
+                    </label>
+                    <Input
+                      id="return-product-name"
+                      value={returnProductName}
+                      onChange={(event) => setReturnProductName(event.target.value)}
+                      placeholder="e.g. Cotton Kurti"
+                      className="border-[#1f2536]/20"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="return-product-type" className="text-sm font-medium text-[#171f32]">
+                      Product Type
+                    </label>
+                    <select
+                      id="return-product-type"
+                      value={returnProductType}
+                      onChange={(event) => setReturnProductType(event.target.value)}
+                      className="flex h-10 w-full rounded-md border border-[#1f2536]/20 bg-white px-3 py-2 text-sm text-[#171f32]"
+                    >
+                      {BILLING_PRODUCT_TYPES.map((productType) => (
+                        <option key={`return-type-${productType}`} value={productType}>
+                          {productType}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="return-quantity" className="text-sm font-medium text-[#171f32]">
+                      Quantity Returned
+                    </label>
+                    <Input
+                      id="return-quantity"
+                      type="number"
+                      min={1}
+                      step="1"
+                      value={returnQuantity}
+                      onChange={(event) => setReturnQuantity(event.target.value)}
+                      className="border-[#1f2536]/20"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="return-amount" className="text-sm font-medium text-[#171f32]">
+                      Refund Amount (INR)
+                    </label>
+                    <Input
+                      id="return-amount"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={returnAmount}
+                      onChange={(event) => setReturnAmount(event.target.value)}
+                      placeholder="0.00"
+                      className="border-[#1f2536]/20"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 rounded-md border border-[#1f2536]/[0.15] bg-white/70 px-3 py-2">
+                  <Checkbox
+                    id="return-is-refunded"
+                    checked={returnIsRefunded}
+                    onCheckedChange={(checked) => setReturnIsRefunded(checked === true)}
+                  />
+                  <label htmlFor="return-is-refunded" className="cursor-pointer text-sm font-medium text-[#171f32]">
+                    Mark as refunded
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="return-notes" className="text-sm font-medium text-[#171f32]">
+                    Notes (optional)
+                  </label>
+                  <Textarea
+                    id="return-notes"
+                    value={returnNotes}
+                    onChange={(event) => setReturnNotes(event.target.value)}
+                    placeholder="Reason for return, condition details, etc."
+                    className="min-h-[90px] border-[#1f2536]/20"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={isSavingReturn}
+                  className="w-full rounded-full bg-[#171f32] px-8 text-[#FCEBCD] hover:bg-[#2b3652] sm:w-auto"
+                >
+                  {isSavingReturn ? "Saving..." : "Save Return Entry"}
+                </Button>
+
+                {returnError && <p className="text-sm text-red-600">{returnError}</p>}
+              </form>
+
+              <div className="rounded-xl border border-[#1f2536]/10 bg-white/70 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-[#171f32]">Return History</h3>
+                  <p className="text-xs text-[#5f667b]">
+                    {returnCustomerFilter ? "Showing selected customer returns" : "Showing all customer returns"}
+                  </p>
+                </div>
+
+                {filteredReturns.length === 0 ? (
+                  <p className="mt-3 text-sm text-[#5f667b]">No return records found.</p>
+                ) : (
+                  <>
+                    <div className="mt-3 space-y-2 md:hidden">
+                      {filteredReturns.map((entry) => (
+                        <div key={`return-card-${entry.id}`} className="rounded-lg border border-[#1f2536]/10 bg-[#f8f3e8]/45 p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-[#171f32]">Return #{entry.id}</p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="border-[#1f2536]/30 text-[#171f32]">
+                                Invoice #{entry.invoiceId}
+                              </Badge>
+                              {entry.isRefunded ? (
+                                <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Refunded</Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-amber-500 text-amber-700">
+                                  Not Refunded
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <p className="mt-1 text-xs text-[#5f667b]">{entry.customerName}</p>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <p className="text-[#5f667b]">Qty Returned</p>
+                              <p className="font-semibold text-[#171f32]">{entry.quantityTotal}</p>
+                            </div>
+                            <div>
+                              <p className="text-[#5f667b]">Refund Amount</p>
+                              <p className="font-semibold text-[#171f32]">{formatCurrency(entry.returnTotal)}</p>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs text-[#3f4861]">{entry.itemsSummary || "No item summary"}</p>
+                          {entry.notes && <p className="mt-1 text-xs text-[#5f667b]">Note: {entry.notes}</p>}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleToggleReturnRefund(entry)}
+                            disabled={isUpdatingReturnRefund}
+                            className="mt-2 border-[#1f2536]/20"
+                          >
+                            {entry.isRefunded ? "Mark Not Refunded" : "Mark Refunded"}
+                          </Button>
+                          <p className="mt-1 text-[11px] text-[#7a8197]">{formatDate(entry.createdAt)}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 hidden overflow-x-auto md:block">
+                      <table className="w-full min-w-[980px] text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-[#1f2536]/10 text-[#5f667b]">
+                            <th className="px-3 py-2">Return</th>
+                            <th className="px-3 py-2">Invoice</th>
+                            <th className="px-3 py-2">Customer</th>
+                            <th className="px-3 py-2">Items</th>
+                            <th className="px-3 py-2">Qty</th>
+                            <th className="px-3 py-2">Refund</th>
+                            <th className="px-3 py-2">Status</th>
+                            <th className="px-3 py-2">Date</th>
+                            <th className="px-3 py-2">Notes</th>
+                            <th className="px-3 py-2">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredReturns.map((entry) => (
+                            <tr key={`return-row-${entry.id}`} className="border-b border-[#1f2536]/10">
+                              <td className="px-3 py-2 font-medium">#{entry.id}</td>
+                              <td className="px-3 py-2">#{entry.invoiceId}</td>
+                              <td className="px-3 py-2">{entry.customerName}</td>
+                              <td className="px-3 py-2">{entry.itemsSummary || "-"}</td>
+                              <td className="px-3 py-2">{entry.quantityTotal}</td>
+                              <td className="px-3 py-2 font-semibold">{formatCurrency(entry.returnTotal)}</td>
+                              <td className="px-3 py-2">
+                                {entry.isRefunded ? (
+                                  <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Refunded</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="border-amber-500 text-amber-700">
+                                    Not Refunded
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">{formatDate(entry.createdAt)}</td>
+                              <td className="px-3 py-2">{entry.notes || "-"}</td>
+                              <td className="px-3 py-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleToggleReturnRefund(entry)}
+                                  disabled={isUpdatingReturnRefund}
+                                  className="border-[#1f2536]/20"
+                                >
+                                  {entry.isRefunded ? "Mark Not Refunded" : "Mark Refunded"}
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="balances">
-          <Card className="border-[#1f2536]/15 bg-white/80 backdrop-blur">
+          <Card className="border-[#1f2536]/[0.15] bg-white/80 backdrop-blur">
             <CardHeader>
               <CardTitle>Add / Update Opening Balance and Stock</CardTitle>
               <CardDescription>

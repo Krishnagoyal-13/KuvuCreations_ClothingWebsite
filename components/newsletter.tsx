@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
+import InteractiveCard from "@/components/interactive-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
@@ -27,29 +28,41 @@ export default function Newsletter() {
   }
 
   return (
-    <div className="lux-panel mx-auto max-w-3xl px-6 py-10 text-center sm:px-10">
-      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#6e7488]">Inner Circle</p>
-      <h2 className="mt-3 text-4xl text-[#171f32]">Get First Access to Every Drop</h2>
-      <p className="mx-auto mb-7 mt-4 max-w-xl text-[#47506b]">
-        Subscriber-only promos, early launch previews, and styling picks for every mood board.
-      </p>
-      <form onSubmit={handleSubmit} className="mx-auto flex max-w-md flex-col gap-3 sm:flex-row">
-        <Input
-          type="email"
-          placeholder="Your email address"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-          className="h-11 flex-1 rounded-full border-[#171f32]/20 bg-white/80 px-5 text-[#171f32] placeholder:text-[#7a7f92] focus-visible:ring-[#E98A2D]"
-        />
-        <Button
-          type="submit"
-          disabled={isSubmitting}
-          className="h-11 rounded-full bg-[#171f32] px-6 text-[#FCEBCD] hover:bg-[#242d44]"
-        >
-          {isSubmitting ? "Subscribing..." : "Subscribe"}
-        </Button>
-      </form>
-    </div>
+    <InteractiveCard className="antimatter-card-strong relative overflow-hidden px-6 py-8 sm:px-10 sm:py-10 lg:px-12 lg:py-12" delay={120} tilt={6}>
+      <div className="pointer-events-none absolute -right-16 top-0 h-52 w-52 rounded-full bg-[rgba(255,123,58,0.18)] blur-3xl" />
+      <div className="grid items-center gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-[#f2bc93]">Inner Circle</p>
+          <h2 className="mt-4 max-w-2xl text-4xl leading-tight text-[#f8f1e6] sm:text-5xl">
+            Get first access to every drop.
+          </h2>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-[#b7b0a4]">
+            Subscriber-only previews, early release access, and styling notes that keep each capsule feeling coherent.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="antimatter-card mx-auto w-full max-w-xl p-4 sm:p-5">
+          <label className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#f2bc93]">Email address</label>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <Input
+              type="email"
+              placeholder="name@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="h-12 flex-1 rounded-full border-white/[0.12] bg-black/20 px-5 text-[#f8f1e6] placeholder:text-[#8f887d] focus-visible:ring-[#ff7b3a]"
+            />
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="h-12 rounded-full bg-[#ff7b3a] px-6 text-[#0a0c10] hover:bg-[#ff9b61] hover:text-[#0a0c10]"
+            >
+              {isSubmitting ? "Subscribing..." : "Subscribe"}
+            </Button>
+          </div>
+          <p className="mt-4 text-sm leading-7 text-[#a9a297]">No noise. Just new launches, offers, and useful styling cues.</p>
+        </form>
+      </div>
+    </InteractiveCard>
   )
 }

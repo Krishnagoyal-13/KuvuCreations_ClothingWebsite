@@ -83,6 +83,18 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;")
 }
 
+function getPaymentStatusLabel(paidAmount: number, dueAmount: number) {
+  if (dueAmount <= 0) {
+    return "Paid"
+  }
+
+  if (paidAmount > 0) {
+    return "Partial Payment"
+  }
+
+  return "Pending"
+}
+
 function evaluateExpression(expression: string) {
   const trimmed = expression.trim()
   if (!trimmed) {
@@ -724,15 +736,12 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
       return
     }
 
-    const paidInvoices = accountInvoices.filter((invoice) => invoice.paymentStatus === "paid")
-    const pendingInvoices = accountInvoices.filter((invoice) => invoice.paymentStatus === "pending")
-
-    const renderRows = (rows: BillingInvoiceRecord[]) => {
-      if (rows.length === 0) {
-        return `<tr><td colspan=\"6\" style=\"text-align:center;color:#6b7280\">No invoices</td></tr>`
+    const renderAllBillRows = () => {
+      if (accountInvoices.length === 0) {
+        return `<tr><td colspan=\"7\" style=\"text-align:center;color:#6b7280\">No invoices</td></tr>`
       }
 
-      return rows
+      return accountInvoices
         .map(
           (invoice) => `
             <tr>
@@ -740,9 +749,105 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
               <td>${escapeHtml(formatDate(invoice.createdAt))}</td>
               <td>${escapeHtml(invoice.itemsSummary || `${invoice.itemCount} items`)}</td>
               <td>${formatCurrency(invoice.total)}</td>
+              <td>${formatCurrency(invoice.paidAmount)}</td>
               <td>${formatCurrency(invoice.dueAmount)}</td>
-              <td>${invoice.paymentStatus === "paid" ? "Paid" : "Pending"}</td>
+              <td>${getPaymentStatusLabel(invoice.paidAmount, invoice.dueAmount)}</td>
             </tr>
+          `,
+        )
+        .join("")
+    }
+
+    const renderInvoicePages = () => {
+      if (accountInvoices.length === 0) {
+        return `
+          <div class="page-break">
+            <div class="invoice-header">
+              <div>
+                <div class="brand">KUVU CREATIONS</div>
+                <div class="sub">Tax Invoice</div>
+              </div>
+              <div>${escapeHtml(new Date().toLocaleString())}</div>
+            </div>
+            <div class="empty-state">No saved bills found for this customer.</div>
+          </div>
+        `
+      }
+
+      return accountInvoices
+        .map(
+          (invoice) => `
+            <div class="page-break">
+              <div class="invoice-header">
+                <div>
+                  <div class="brand">KUVU CREATIONS</div>
+                  <div class="sub">Tax Invoice</div>
+                </div>
+                <div>${escapeHtml(formatDate(invoice.createdAt))}</div>
+              </div>
+
+              <div class="meta invoice-meta">
+                <div><strong>Invoice:</strong> #${invoice.id}</div>
+                <div><strong>Customer:</strong> ${escapeHtml(invoice.customerName)}</div>
+                <div><strong>Phone:</strong> ${escapeHtml(invoice.customerPhone || "N/A")}</div>
+                <div><strong>Status:</strong> ${getPaymentStatusLabel(invoice.paidAmount, invoice.dueAmount)}</div>
+              </div>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th>Qty</th>
+                    <th>Unit Price</th>
+                    <th>Discount</th>
+                    <th>Tax</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${
+                    invoice.items.length > 0
+                      ? invoice.items
+                          .map(
+                            (item, index) => `
+                              <tr>
+                                <td>${index + 1}</td>
+                                <td>${escapeHtml(item.productName)}</td>
+                                <td>${escapeHtml(item.productType)}</td>
+                                <td>${item.quantity}</td>
+                                <td>${formatCurrency(item.unitPrice)}</td>
+                                <td>${formatCurrency(item.discountValue)}</td>
+                                <td>${invoice.taxEnabled ? `${item.taxPercent.toFixed(2)}%` : "-"}</td>
+                                <td>${formatCurrency(item.lineTotal)}</td>
+                              </tr>
+                            `,
+                          )
+                          .join("")
+                      : `<tr><td colspan="8" style="text-align:center;color:#6b7280">No saved line items</td></tr>`
+                  }
+                </tbody>
+              </table>
+
+              <div class="summary">
+                <div class="summary-row"><span>Sub Total</span><span>${formatCurrency(invoice.subtotal)}</span></div>
+                <div class="summary-row"><span>Discount</span><span>- ${formatCurrency(invoice.discountTotal)}</span></div>
+                ${invoice.taxEnabled ? `<div class="summary-row"><span>Tax</span><span>${formatCurrency(invoice.taxTotal)}</span></div>` : ""}
+                <div class="summary-row"><span>Gross Total</span><span>${formatCurrency(invoice.grossTotal)}</span></div>
+                ${invoice.returnTotal > 0 ? `<div class="summary-row"><span>Return Adjustment</span><span>- ${formatCurrency(invoice.returnTotal)}</span></div>` : ""}
+                <div class="summary-row summary-total"><span>Net Total</span><span>${formatCurrency(invoice.total)}</span></div>
+                <div class="summary-row summary-accent"><span>Paid Amount</span><span>${formatCurrency(invoice.paidAmount)}</span></div>
+                <div class="summary-row summary-accent"><span>Due Amount</span><span>${formatCurrency(invoice.dueAmount)}</span></div>
+                <div class="summary-row"><span>Payment Status</span><span>${getPaymentStatusLabel(invoice.paidAmount, invoice.dueAmount)}</span></div>
+              </div>
+
+              ${
+                invoice.notes
+                  ? `<div class="notes"><strong>Notes:</strong><br/>${escapeHtml(invoice.notes).replaceAll("\n", "<br/>")}</div>`
+                  : ""
+              }
+            </div>
           `,
         )
         .join("")
@@ -757,75 +862,73 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
           <style>
             * { box-sizing: border-box; }
             body { font-family: 'Segoe UI', Arial, sans-serif; color: #10172b; margin: 0; padding: 28px; }
-            .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #111827; padding-bottom: 12px; }
+            .header, .invoice-header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #111827; padding-bottom: 12px; }
             .brand { font-size: 24px; font-weight: 800; letter-spacing: 0.08em; }
             .sub { margin-top: 4px; color: #4b5563; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
             .meta { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 13px; }
+            .invoice-meta { margin-bottom: 16px; }
             .kpis { margin-top: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
             .kpi { border: 1px solid #d1d5db; border-radius: 10px; padding: 10px; background: #f8fafc; }
             .kpi-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; }
             .kpi-value { margin-top: 6px; font-size: 18px; font-weight: 700; }
+            .page-break { page-break-before: always; break-before: page; }
             h2 { margin: 20px 0 8px; font-size: 15px; }
             table { width: 100%; border-collapse: collapse; }
             th, td { border: 1px solid #d1d5db; padding: 8px; font-size: 12px; }
             th { background: #f3f4f6; text-align: left; }
+            .note { margin-top: 10px; color: #6b7280; font-size: 11px; }
+            .summary { margin-top: 18px; margin-left: auto; max-width: 320px; }
+            .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+            .summary-total { border-top: 1px solid #c2c8d9; margin-top: 8px; padding-top: 8px; font-weight: 800; font-size: 16px; }
+            .summary-accent { font-weight: 700; }
+            .notes { margin-top: 20px; padding: 10px; border: 1px dashed #c2c8d9; background: #fafbff; font-size: 12px; }
+            .empty-state { margin-top: 20px; border: 1px dashed #d1d5db; padding: 16px; color: #6b7280; text-align: center; }
             .foot { margin-top: 18px; color: #6b7280; font-size: 11px; text-align: center; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <div>
-              <div class="brand">KUVU CREATIONS</div>
-              <div class="sub">Customer Account Statement</div>
+          <div>
+            <div class="header">
+              <div>
+                <div class="brand">KUVU CREATIONS</div>
+                <div class="sub">Customer Account Statement</div>
+              </div>
+              <div>${escapeHtml(new Date().toLocaleString())}</div>
             </div>
-            <div>${escapeHtml(new Date().toLocaleString())}</div>
+
+            <div class="meta">
+              <div><strong>Customer:</strong> ${escapeHtml(selectedAccountCustomer.fullName)}</div>
+              <div><strong>Phone:</strong> ${escapeHtml(selectedAccountCustomer.phoneNumber || "N/A")}</div>
+            </div>
+
+            <div class="kpis">
+              <div class="kpi"><div class="kpi-title">Opening Balance</div><div class="kpi-value">${formatCurrency(accountSummary.openingBalance)}</div></div>
+              <div class="kpi"><div class="kpi-title">Invoice Total</div><div class="kpi-value">${formatCurrency(accountSummary.billedTotal)}</div></div>
+              <div class="kpi"><div class="kpi-title">Paid</div><div class="kpi-value">${formatCurrency(accountSummary.paidTotal)}</div></div>
+              <div class="kpi"><div class="kpi-title">Pending</div><div class="kpi-value">${formatCurrency(accountSummary.pendingTotal)}</div></div>
+            </div>
+
+            <h2>All Bills Overview</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Date</th>
+                  <th>Items</th>
+                  <th>Total</th>
+                  <th>Paid</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${renderAllBillRows()}
+              </tbody>
+            </table>
+            <div class="note">Status shows Partial Payment when some amount is received and a balance is still pending.</div>
           </div>
 
-          <div class="meta">
-            <div><strong>Customer:</strong> ${escapeHtml(selectedAccountCustomer.fullName)}</div>
-            <div><strong>Phone:</strong> ${escapeHtml(selectedAccountCustomer.phoneNumber || "N/A")}</div>
-          </div>
-
-          <div class="kpis">
-            <div class="kpi"><div class="kpi-title">Opening Balance</div><div class="kpi-value">${formatCurrency(accountSummary.openingBalance)}</div></div>
-            <div class="kpi"><div class="kpi-title">Invoice Total</div><div class="kpi-value">${formatCurrency(accountSummary.billedTotal)}</div></div>
-            <div class="kpi"><div class="kpi-title">Paid</div><div class="kpi-value">${formatCurrency(accountSummary.paidTotal)}</div></div>
-            <div class="kpi"><div class="kpi-title">Pending</div><div class="kpi-value">${formatCurrency(accountSummary.pendingTotal)}</div></div>
-          </div>
-
-          <h2>Pending Orders</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Date</th>
-                <th>Items</th>
-                <th>Total</th>
-                <th>Due</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderRows(pendingInvoices)}
-            </tbody>
-          </table>
-
-          <h2>Paid Orders</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Date</th>
-                <th>Items</th>
-                <th>Total</th>
-                <th>Due</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${renderRows(paidInvoices)}
-            </tbody>
-          </table>
+          ${renderInvoicePages()}
 
           <div class="foot">Generated by KUVU CREATIONS Admin Panel</div>
         </body>
@@ -894,6 +997,8 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
       )
       .join("")
 
+    const paymentStatusLabel = getPaymentStatusLabel(billPaymentPreview.paidAmount, billPaymentPreview.dueAmount)
+
     const html = `
       <!doctype html>
       <html>
@@ -914,6 +1019,7 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
             .summary { margin-top: 18px; margin-left: auto; max-width: 320px; }
             .summary-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
             .summary-total { border-top: 1px solid #c2c8d9; margin-top: 8px; padding-top: 8px; font-weight: 800; font-size: 16px; }
+            .summary-accent { font-weight: 700; }
             .notes { margin-top: 20px; padding: 10px; border: 1px dashed #c2c8d9; background: #fafbff; font-size: 12px; }
             .foot { margin-top: 24px; font-size: 11px; color: #5b6076; text-align: center; }
           </style>
@@ -954,6 +1060,9 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
             <div class="summary-row"><span>Discount</span><span>- ${formatCurrency(billSummary.discountTotal)}</span></div>
             ${taxEnabled ? `<div class="summary-row"><span>Tax</span><span>${formatCurrency(billSummary.taxTotal)}</span></div>` : ""}
             <div class="summary-row summary-total"><span>Total</span><span>${formatCurrency(billSummary.total)}</span></div>
+            <div class="summary-row summary-accent"><span>Paid Amount</span><span>${formatCurrency(billPaymentPreview.paidAmount)}</span></div>
+            <div class="summary-row summary-accent"><span>Due Amount</span><span>${formatCurrency(billPaymentPreview.dueAmount)}</span></div>
+            <div class="summary-row"><span>Payment Status</span><span>${paymentStatusLabel}</span></div>
           </div>
 
           ${notes.trim() ? `<div class="notes"><strong>Notes:</strong><br/>${escapeHtml(notes).replaceAll("\n", "<br/>")}</div>` : ""}

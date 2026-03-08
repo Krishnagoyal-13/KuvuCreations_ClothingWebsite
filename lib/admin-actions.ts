@@ -32,12 +32,53 @@ function normalizeProductType(productType?: string | null) {
   return matched ?? BILLING_PRODUCT_TYPES[0]
 }
 
+function parseBillingInvoiceItems(value: unknown): BillingInvoiceItemRecord[] {
+  const source =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value)
+          } catch {
+            return []
+          }
+        })()
+      : value
+
+  if (!Array.isArray(source)) {
+    return []
+  }
+
+  return source.map((item) => ({
+    productName: String(item?.productName ?? ""),
+    productType: String(item?.productType ?? BILLING_PRODUCT_TYPES[0]),
+    quantity: Number(item?.quantity ?? 0),
+    unitPrice: Number.parseFloat(item?.unitPrice ?? "0"),
+    baseTotal: Number.parseFloat(item?.baseTotal ?? "0"),
+    discountValue: Number.parseFloat(item?.discountValue ?? "0"),
+    taxPercent: Number.parseFloat(item?.taxPercent ?? "0"),
+    taxAmount: Number.parseFloat(item?.taxAmount ?? "0"),
+    lineTotal: Number.parseFloat(item?.lineTotal ?? "0"),
+  }))
+}
+
 export interface BillingCustomerOption {
   id: number
   fullName: string
   phoneNumber: string | null
   openingBalance: number
   lastInvoiceAt: string | null
+}
+
+export interface BillingInvoiceItemRecord {
+  productName: string
+  productType: string
+  quantity: number
+  unitPrice: number
+  baseTotal: number
+  discountValue: number
+  taxPercent: number
+  taxAmount: number
+  lineTotal: number
 }
 
 export interface BillingInvoiceRecord {
@@ -58,6 +99,8 @@ export interface BillingInvoiceRecord {
   createdAt: string
   itemCount: number
   itemsSummary: string
+  notes: string | null
+  items: BillingInvoiceItemRecord[]
 }
 
 export interface BillingReturnRecord {
@@ -201,12 +244,30 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
         bi.paid_amount,
         bi.payment_status,
         bi.tax_enabled,
+        bi.notes,
         bi.created_at,
         COUNT(bii.id)::INTEGER AS item_count,
         COALESCE(
           STRING_AGG((bii.product_name || ' [' || bii.product_type || '] x' || bii.quantity::TEXT), ', ' ORDER BY bii.id),
           ''
-        ) AS items_summary
+        ) AS items_summary,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'productName', bii.product_name,
+              'productType', bii.product_type,
+              'quantity', bii.quantity,
+              'unitPrice', bii.unit_price,
+              'baseTotal', bii.base_total,
+              'discountValue', bii.discount_value,
+              'taxPercent', bii.tax_percent,
+              'taxAmount', bii.tax_amount,
+              'lineTotal', bii.line_total
+            )
+            ORDER BY bii.id
+          ) FILTER (WHERE bii.id IS NOT NULL),
+          '[]'::json
+        ) AS items
       FROM billing_invoices bi
       JOIN billing_customers bc ON bc.id = bi.customer_id
       LEFT JOIN return_totals rt ON rt.invoice_id = bi.id
@@ -224,6 +285,7 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
         bi.paid_amount,
         bi.payment_status,
         bi.tax_enabled,
+        bi.notes,
         bi.created_at
       ORDER BY bi.created_at DESC
       LIMIT 300
@@ -344,6 +406,8 @@ export async function getBillingDashboardData(): Promise<BillingDashboardData> {
         createdAt: new Date(row.created_at).toISOString(),
         itemCount: Number(row.item_count ?? 0),
         itemsSummary: row.items_summary || "",
+        notes: row.notes ?? null,
+        items: parseBillingInvoiceItems(row.items),
       }
     }),
     returns: returnsResult.rows.map((row) => ({

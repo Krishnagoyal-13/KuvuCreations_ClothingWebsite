@@ -1,18 +1,14 @@
-import { Filter, SlidersHorizontal } from "lucide-react"
-import Link from "next/link"
+import { ExternalLink } from "lucide-react"
 import Image from "next/image"
+import Link from "next/link"
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
+import InteractiveCard from "@/components/interactive-card"
+import { MarketplaceFilters } from "@/components/products/marketplace-filters"
+import { MarketplaceSort } from "@/components/products/marketplace-sort"
 import { Badge } from "@/components/ui/badge"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { query } from "@/lib/db"
-import { mockProducts } from "@/lib/mock-data"
+import { Button } from "@/components/ui/button"
+import { getCatalogBrowseData } from "@/lib/catalog"
+import { hasActiveCatalogFilters, parseCatalogBrowseFilters } from "@/lib/catalog-filters"
 
 const currencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -21,170 +17,225 @@ const currencyFormatter = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
 })
 
-// Fetch products from the database
-async function getProducts() {
-  try {
-    const result = await query("SELECT * FROM products ORDER BY created_at DESC")
-    return result.rows.map((product) => ({
-      id: product.id,
-      name: product.name,
-      price: Number.parseFloat(product.price),
-      originalPrice: product.id % 3 === 0 ? Number.parseFloat(product.price) * 1.2 : null,
-      image: product.image || `/placeholder.svg?height=400&width=300&text=Product+${product.id}`,
-      isNew: product.id % 5 === 0,
-      isSale: product.id % 3 === 0,
-    }))
-  } catch (error) {
-    console.error("Error fetching products:", error)
-    // Return mock products as fallback
-    return mockProducts.map((product) => ({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      originalPrice: Number.parseInt(product.id) % 3 === 0 ? product.price * 1.2 : null,
-      image: product.image,
-      isNew: Number.parseInt(product.id) % 5 === 0,
-      isSale: Number.parseInt(product.id) % 3 === 0,
-    }))
-  }
+function buildClearFiltersHref(sort: string) {
+  return sort === "newest" ? "/products" : `/products?sort=${encodeURIComponent(sort)}`
 }
 
-export default async function ProductsPage() {
-  const products = await getProducts()
+function formatResultLabel(count: number) {
+  return `${count} result${count === 1 ? "" : "s"}`
+}
+
+export default async function ProductsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const resolvedSearchParams = (await searchParams) ?? {}
+  const filters = parseCatalogBrowseFilters(resolvedSearchParams)
+  const browseData = await getCatalogBrowseData(filters)
+  const activeFilterLabels = browseData.facets.flatMap((section) =>
+    section.options
+      .filter((option) => option.selected && !(section.key === "priceRange" && option.value === "all"))
+      .map((option) => `${section.label}: ${option.label}`),
+  )
+  const clearFiltersHref = buildClearFiltersHref(filters.sort)
+  const hasActiveFilters = hasActiveCatalogFilters(filters)
 
   return (
-    <div className="container py-10">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold">All Products</h1>
-          <p className="text-muted-foreground">Showing {products.length} products</p>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="md:hidden">
-                <SlidersHorizontal className="h-4 w-4 mr-2" />
-                Filters
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left">
-              <SheetHeader>
-                <SheetTitle>Filters</SheetTitle>
-                <SheetDescription>Narrow down your product search</SheetDescription>
-              </SheetHeader>
-              <div className="py-6 space-y-6">
-                <div>
-                  <h3 className="font-medium mb-4">Categories</h3>
-                  <div className="space-y-3">
-                    {["Dresses", "Tops", "Bottoms", "Outerwear", "Accessories"].map((category) => (
-                      <div key={category} className="flex items-center space-x-2">
-                        <Checkbox id={`category-${category}`} />
-                        <Label htmlFor={`category-${category}`}>{category}</Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <Separator />
-                <div>
-                  <h3 className="font-medium mb-4">Price Range</h3>
-                  <RadioGroup defaultValue="all">
-                    {[
-                      { value: "all", label: "All Prices" },
-                      { value: "under-50", label: "Under ₹50" },
-                      { value: "50-100", label: "₹50 - ₹100" },
-                      { value: "100-200", label: "₹100 - ₹200" },
-                      { value: "over-200", label: "Over ₹200" },
-                    ].map((option) => (
-                      <div key={option.value} className="flex items-center space-x-2">
-                        <RadioGroupItem value={option.value} id={`price-${option.value}`} />
-                        <Label htmlFor={`price-${option.value}`}>{option.label}</Label>
-                      </div>
-                    ))}
-                  </RadioGroup>
-                </div>
-                <Separator />
-                <div>
-                  <h3 className="font-medium mb-4">Size</h3>
-                  <div className="space-y-3">
-                    {["XS", "S", "M", "L", "XL"].map((size) => (
-                      <div key={size} className="flex items-center space-x-2">
-                        <Checkbox id={`size-${size}`} />
-                        <Label htmlFor={`size-${size}`}>{size}</Label>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+    <div className="container py-10 text-white">
+      <div className="space-y-8">
+        <section className="rounded-[2rem] border border-white/[0.12] bg-[#05070b]/80 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.28)] backdrop-blur sm:p-8">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="max-w-3xl space-y-4">
+              <Badge className="w-fit rounded-full border border-[#f7a06b]/35 bg-[#f7a06b]/12 px-4 py-1 text-[11px] uppercase tracking-[0.24em] text-[#ffd0ad]">
+                Marketplace Discovery
+              </Badge>
+              <div className="space-y-3">
+                <h1 className="text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
+                  Browse independent labels, compare live offers, and move out to checkout fast.
+                </h1>
+                <p className="max-w-2xl text-sm leading-7 text-white/62 sm:text-base">
+                  Discover third-party fashion across tailoring, occasionwear, outerwear, and elevated basics. Filter
+                  by brand, silhouette, color, or aesthetic, then jump to the active external offer that fits.
+                </p>
               </div>
-            </SheetContent>
-          </Sheet>
+            </div>
 
-          <div className="hidden md:flex items-center gap-4">
-            <Select defaultValue="featured">
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="featured">Featured</SelectItem>
-                <SelectItem value="newest">Newest</SelectItem>
-                <SelectItem value="price-low">Price: Low to High</SelectItem>
-                <SelectItem value="price-high">Price: High to Low</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button variant="outline" size="sm">
-              <Filter className="h-4 w-4 mr-2" />
-              Filter
-            </Button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <MarketplaceFilters
+                mode="mobile"
+                facets={browseData.facets}
+                filters={filters}
+                filteredCount={browseData.filteredCount}
+                totalCount={browseData.totalCount}
+              />
+              <MarketplaceSort value={filters.sort} />
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {products.map((product) => (
-          <Card key={product.id} className="group overflow-hidden border-0 shadow-sm">
-            <CardContent className="p-0">
-              <div className="relative">
-                <Link href={`/products/${product.id}`}>
-                  <div className="relative h-80 w-full overflow-hidden">
-                    <Image
-                      src={product.image || "/placeholder.svg"}
-                      alt={product.name}
-                      fill
-                      className="object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  </div>
-                </Link>
-                <div className="absolute top-3 left-3 flex flex-col gap-2">
-                  {product.isNew && <Badge className="bg-black text-white hover:bg-black">New</Badge>}
-                  {product.isSale && <Badge className="bg-red-500 text-white hover:bg-red-600">Sale</Badge>}
-                </div>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Badge className="rounded-full border border-white/[0.12] bg-white/[0.05] px-4 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white/78">
+              {formatResultLabel(browseData.filteredCount)}
+            </Badge>
+            {browseData.filteredCount !== browseData.totalCount && (
+              <Badge
+                variant="outline"
+                className="rounded-full border-white/[0.12] bg-white/[0.02] px-4 py-1.5 text-[11px] uppercase tracking-[0.18em] text-white/65"
+              >
+                {browseData.totalCount} total
+              </Badge>
+            )}
+            {activeFilterLabels.map((label) => (
+              <Badge
+                key={label}
+                variant="outline"
+                className="rounded-full border-white/[0.12] bg-white/[0.02] px-4 py-1.5 text-[11px] uppercase tracking-[0.16em] text-white/72"
+              >
+                {label}
+              </Badge>
+            ))}
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" className="rounded-full px-4 text-white/70 hover:bg-white/[0.08] hover:text-white" asChild>
+                <Link href={clearFiltersHref}>Clear filters</Link>
+              </Button>
+            )}
+          </div>
+        </section>
+
+        <div className="grid gap-8 lg:grid-cols-[280px,minmax(0,1fr)]">
+          <MarketplaceFilters
+            mode="desktop"
+            facets={browseData.facets}
+            filters={filters}
+            filteredCount={browseData.filteredCount}
+            totalCount={browseData.totalCount}
+          />
+
+          <div className="space-y-6">
+            {browseData.totalCount === 0 ? (
+              <div className="rounded-[1.75rem] border border-dashed border-white/[0.12] bg-white/[0.03] px-6 py-12 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#f7a06b]">Marketplace Empty</p>
+                <h2 className="mt-4 text-2xl font-semibold">No marketplace products are available yet.</h2>
+                <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-white/58">
+                  Seed or import brand catalog data first. The discovery page will automatically build filters from the
+                  active marketplace products and tags.
+                </p>
               </div>
-              <div className="p-4">
-                <Link href={`/products/${product.id}`} className="hover:underline">
-                  <h3 className="font-medium mb-1">{product.name}</h3>
-                </Link>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">{currencyFormatter.format(product.price)}</span>
-                  {product.originalPrice && (
-                    <span className="text-sm text-muted-foreground line-through">
-                      {currencyFormatter.format(product.originalPrice)}
-                    </span>
-                  )}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Button variant="outline" size="sm" className="flex-1">
-                    Add to Cart
+            ) : browseData.products.length === 0 ? (
+              <div className="rounded-[1.75rem] border border-dashed border-white/[0.12] bg-white/[0.03] px-6 py-12 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#f7a06b]">No Matches</p>
+                <h2 className="mt-4 text-2xl font-semibold">No products match the current filters.</h2>
+                <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-white/58">
+                  Try widening the price range, switching aesthetics, or clearing the active filters to reopen the full
+                  marketplace catalog.
+                </p>
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    variant="outline"
+                    className="rounded-full border-white/[0.12] bg-white/[0.03] text-white hover:bg-white/[0.08] hover:text-white"
+                    asChild
+                  >
+                    <Link href={clearFiltersHref}>Reset filters</Link>
                   </Button>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                  {browseData.products.map((product, index) => (
+                    <InteractiveCard
+                      key={product.id}
+                      className="h-full rounded-[1.75rem] border border-white/[0.12] bg-white/[0.04] shadow-[0_24px_70px_rgba(0,0,0,0.24)]"
+                      delay={Math.min(index * 70, 280)}
+                      tilt={8}
+                    >
+                      <div className="group flex h-full flex-col overflow-hidden">
+                        <div className="relative h-80 overflow-hidden">
+                          <Link href={`/products/${product.id}`} className="absolute inset-0 z-10" aria-label={product.name} />
+                          <Image
+                            src={product.image || "/placeholder.svg"}
+                            alt={product.name}
+                            fill
+                            className="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/12 to-transparent" />
+                          <div className="absolute left-4 top-4 z-20 flex flex-wrap gap-2">
+                            {product.isNew && (
+                              <Badge className="rounded-full bg-black/80 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white">
+                                New
+                              </Badge>
+                            )}
+                            {product.isSale && (
+                              <Badge className="rounded-full bg-[#ea6a4c] px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-white">
+                                Sale
+                              </Badge>
+                            )}
+                            <Badge className="rounded-full border border-white/[0.14] bg-white/85 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-black">
+                              {product.offerCount > 0 ? `${product.offerCount} offers` : "Catalog only"}
+                            </Badge>
+                          </div>
+                        </div>
 
-      <div className="mt-12 flex justify-center">
-        <Button variant="outline">Load More</Button>
+                        <div className="flex flex-1 flex-col p-5">
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#f7a06b]">
+                              {product.brandName}
+                            </p>
+                            <Link href={`/products/${product.id}`} className="block transition-colors hover:text-[#ffd0ad]">
+                              <h2 className="text-xl font-semibold tracking-[-0.03em]">{product.name}</h2>
+                            </Link>
+                            <p className="line-clamp-3 text-sm leading-6 text-white/58">{product.description}</p>
+                          </div>
+
+                          <div className="mt-5 flex items-end justify-between gap-4">
+                            <div className="space-y-1">
+                              <div className="text-lg font-semibold">{currencyFormatter.format(product.price)}</div>
+                              {product.compareAtPrice && (
+                                <div className="text-sm text-white/45 line-through">
+                                  {currencyFormatter.format(product.compareAtPrice)}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs uppercase tracking-[0.18em] text-white/42">External checkout</div>
+                          </div>
+
+                          <div className="mt-5 flex gap-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1 rounded-full border-white/[0.12] bg-white/[0.02] text-white hover:bg-white/[0.08] hover:text-white"
+                              asChild
+                            >
+                              <Link href={`/products/${product.id}`}>View offers</Link>
+                            </Button>
+                            {product.primaryOfferUrl && (
+                              <Button
+                                size="sm"
+                                className="flex-1 rounded-full bg-[#f7a06b] text-black hover:bg-[#ffb684]"
+                                asChild
+                              >
+                                <a href={product.primaryOfferUrl} target="_blank" rel="noreferrer">
+                                  Shop now
+                                  <ExternalLink className="ml-2 h-4 w-4" />
+                                </a>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </InteractiveCard>
+                  ))}
+                </div>
+
+                <div className="rounded-[1.5rem] border border-white/[0.12] bg-white/[0.03] px-5 py-4 text-sm leading-7 text-white/56">
+                  Offer prices and availability come from linked brand sites and partner sources. Filtering uses brand
+                  ownership plus normalized product tags, so new seeded or imported marketplace products automatically
+                  slot into the same browse experience.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

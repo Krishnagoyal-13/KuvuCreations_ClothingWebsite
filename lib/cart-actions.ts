@@ -20,6 +20,7 @@ export interface CartItem {
 async function getOrCreateCart() {
   try {
     const user = await getCurrentUser()
+    const cookieStore = await cookies()
     let cartId: number | null = null
     let sessionId: string | null = null
 
@@ -36,11 +37,11 @@ async function getOrCreateCart() {
       }
     } else {
       // Get or create anonymous cart
-      sessionId = cookies().get("cart_session_id")?.value
+      sessionId = cookieStore.get("cart_session_id")?.value ?? null
 
       if (!sessionId) {
         sessionId = uuidv4()
-        cookies().set("cart_session_id", sessionId, {
+        cookieStore.set("cart_session_id", sessionId, {
           httpOnly: true,
           maxAge: 60 * 60 * 24 * 30, // 30 days
           path: "/",
@@ -244,12 +245,13 @@ export async function clearCart() {
 export async function saveCart() {
   try {
     const user = await getCurrentUser()
+    const cookieStore = await cookies()
 
     if (!user) {
       return { success: false, error: "User not logged in" }
     }
 
-    const sessionId = cookies().get("cart_session_id")?.value
+    const sessionId = cookieStore.get("cart_session_id")?.value ?? null
 
     if (!sessionId) {
       return { success: true } // No anonymous cart to merge
@@ -323,7 +325,7 @@ export async function saveCart() {
     await query("DELETE FROM carts WHERE id = $1", [anonCartId])
 
     // Delete cart session cookie
-    cookies().delete("cart_session_id")
+    cookieStore.delete("cart_session_id")
 
     return { success: true }
   } catch (error) {

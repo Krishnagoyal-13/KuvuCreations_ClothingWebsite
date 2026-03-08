@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "db:migrate": "node scripts/migrate-db.cjs",
     "billing:reset": "node scripts/reset-billing-data.cjs"
   },
   "dependencies": {

@@ -44,7 +44,8 @@ export async function loginUser(data: LoginData) {
     await query("INSERT INTO sessions (id, user_id, expires) VALUES ($1, $2, $3)", [sessionId, user.id, expires])
 
     // Set session cookie
-    cookies().set("session_id", sessionId, {
+    const cookieStore = await cookies()
+    cookieStore.set("session_id", sessionId, {
       httpOnly: true,
       expires,
       path: "/",
@@ -87,7 +88,8 @@ export async function registerUser(data: RegisterData) {
 export async function logoutUser() {
   try {
     // Get session ID from cookie
-    const sessionId = cookies().get("session_id")?.value
+    const cookieStore = await cookies()
+    const sessionId = cookieStore.get("session_id")?.value
 
     // Delete session if it exists
     if (sessionId) {
@@ -95,14 +97,15 @@ export async function logoutUser() {
     }
 
     // Delete session cookie
-    cookies().delete("session_id")
+    cookieStore.delete("session_id")
 
     // Redirect to home page
     redirect("/")
   } catch (error) {
     console.error("Logout error:", error)
     // Still delete the cookie even if there's an error
-    cookies().delete("session_id")
+    const cookieStore = await cookies()
+    cookieStore.delete("session_id")
     redirect("/")
   }
 }
@@ -110,7 +113,8 @@ export async function logoutUser() {
 export async function getCurrentUser() {
   try {
     // Get session ID from cookie
-    const sessionId = cookies().get("session_id")?.value
+    const cookieStore = await cookies()
+    const sessionId = cookieStore.get("session_id")?.value
 
     if (!sessionId) {
       return null
@@ -121,7 +125,7 @@ export async function getCurrentUser() {
 
     if (sessionResult.rows.length === 0) {
       // Session not found or expired
-      cookies().delete("session_id")
+      cookieStore.delete("session_id")
       return null
     }
 

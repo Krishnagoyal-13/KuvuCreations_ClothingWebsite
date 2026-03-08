@@ -19,7 +19,7 @@ import {
   type BillingReturnRecord,
   type BillingStockCategoryRecord,
 } from "@/lib/admin-actions"
-import { BILLING_PRODUCT_TYPES } from "@/lib/billing-constants"
+import { BILLING_PRODUCT_TYPES, type BillingProductType } from "@/lib/billing-constants"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -141,7 +141,7 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
   const [returnCustomerFilter, setReturnCustomerFilter] = useState("")
   const [returnInvoiceId, setReturnInvoiceId] = useState("")
   const [returnProductName, setReturnProductName] = useState("")
-  const [returnProductType, setReturnProductType] = useState(BILLING_PRODUCT_TYPES[0])
+  const [returnProductType, setReturnProductType] = useState<BillingProductType>(BILLING_PRODUCT_TYPES[0])
   const [returnQuantity, setReturnQuantity] = useState("1")
   const [returnAmount, setReturnAmount] = useState("")
   const [returnIsRefunded, setReturnIsRefunded] = useState(false)
@@ -2027,7 +2027,7 @@ export default function AdminDashboard({ customers, invoices, returns, stockByCa
                     <select
                       id="return-product-type"
                       value={returnProductType}
-                      onChange={(event) => setReturnProductType(event.target.value)}
+                      onChange={(event) => setReturnProductType(event.target.value as BillingProductType)}
                       className="flex h-10 w-full rounded-md border border-[#1f2536]/20 bg-white px-3 py-2 text-sm text-[#171f32]"
                     >
                       {BILLING_PRODUCT_TYPES.map((productType) => (
